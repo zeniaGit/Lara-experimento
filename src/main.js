@@ -161,8 +161,8 @@ function updateTrampolinePhysics() {
   for (let body of letterBodies) {
     if (body === draggedBody) continue;
 
-    // Altura visual real de la letra (baseline offset tipográfico de Cinzel: ~0.42 * size)
-    const baseContactRadius = body.size * 0.42;
+    // Altura visual real de la letra: radio exacto a la base tangencial (Cinzel Serif baseline: 0.38 * size)
+    const baseContactRadius = body.size * 0.38;
     const letterFootY = body.position.y + baseContactRadius;
     const bodyX = body.position.x;
 
@@ -172,32 +172,29 @@ function updateTrampolinePhysics() {
     );
     const node = lineNodes[nodeIndex];
 
-    // Contacto físico estricto con la cuerda
+    // Contacto físico tangencial estricto con la cuerda
     if (letterFootY >= node.y) {
       const penetration = letterFootY - node.y;
 
       // Fase de Impacto dinámico
       if (body.velocity.y > 1.2) {
-        // Deformación controlada y firme de la línea
         perturbLine(bodyX, Math.min(body.velocity.y * 1.1 + penetration * 0.15, 25));
 
-        // Rebote elástico reactivo
+        // Rebote elástico
         Body.setVelocity(body, {
           x: body.velocity.x * 0.9,
           y: -Math.min(body.velocity.y * 0.4, 8),
         });
       } else {
-        // Fase de Reposo: Contacto perfecto sin holgura (la base de la letra toca exactamente la línea)
+        // En reposo: TANGENTE MATEMÁTICA PERFECTA (el pie toca la línea de fondo exactamente en y = node.y)
         Body.setPosition(body, {
           x: body.position.x,
           y: node.y - baseContactRadius,
         });
 
-        // Nivelar ángulo en reposo para que las letras queden erguidas y estables
-        Body.setAngle(body, body.angle * 0.88);
+        Body.setAngle(body, body.angle * 0.85);
         Body.setAngularVelocity(body, 0);
 
-        // Cancelar velocidad vertical residual para reposo absoluto
         if (Math.abs(body.velocity.y) < 1.2) {
           Body.setVelocity(body, {
             x: body.velocity.x * 0.92,
