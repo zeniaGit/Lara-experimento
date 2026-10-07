@@ -174,8 +174,9 @@ function updateTrampolinePhysics() {
     if (bottomY >= node.y - 2) {
       const penetration = bottomY - node.y;
 
-      if (body.velocity.y > 0) {
-        perturbLine(bodyX, Math.min(body.velocity.y * 1.5 + penetration * 0.3, 35));
+      // Solo perturbar la línea si la letra realmente se está moviendo hacia abajo con fuerza (tolerancia de reposo)
+      if (body.velocity.y > 0.4) {
+        perturbLine(bodyX, Math.min(body.velocity.y * 1.4 + penetration * 0.2, 35));
       }
 
       const maxSink = 55;
@@ -227,10 +228,18 @@ function updateTrampolinePhysics() {
   }
 }
 
-// Update de la Cuerda Elástica (Ecuación Onda & Amortiguación)
+// Update de la Cuerda Elástica (Ecuación Onda & Amortiguación con Zona Muerta de Tolerancia)
 function updateFloorMesh() {
   for (let node of lineNodes) {
     const dy = node.targetY - node.y;
+
+    // Tolerancia / Zona muerta: si la oscilación es minúscula (< 0.15px), reposar totalmente
+    if (Math.abs(dy) < 0.15 && Math.abs(node.vy) < 0.08) {
+      node.y = node.targetY;
+      node.vy = 0;
+      continue;
+    }
+
     const force = dy * CONFIG.springK;
     node.vy += force;
     node.vy *= CONFIG.damping;
