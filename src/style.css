@@ -1,0 +1,158 @@
+:root {
+  --bg-color: #0b0c10;
+  --text-main: #f0f2f5;
+  --accent: #66fcf1;
+  --accent-glow: rgba(102, 252, 241, 0.4);
+  --line-color: rgba(255, 255, 255, 0.7);
+  --font-display: 'Cinzel', serif;
+  --font-ui: 'Space Grotesk', sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background-color: var(--bg-color);
+  color: var(--text-main);
+  font-family: var(--font-ui);
+}
+
+#app {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+#gravity-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  z-index: 1;
+  touch-action: none;
+}
+
+.hud-header {
+  position: absolute;
+  top: 24px;
+  left: 24px;
+  right: 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  z-index: 10;
+  pointer-events: none;
+}
+
+.brand-tag {
+  font-size: 0.75rem;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.4);
+  font-weight: 500;
+}
+
+.toggles-cluster {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+.toggle-btn {
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(18, 20, 28, 0.65);
+  color: rgba(255, 255, 255, 0.6);
+  padding: 5px 8px;
+  border-radius: 20px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: all 0.25s ease;
+}
+
+.toggle-btn.icon-only {
+  padding: 7px;
+  border-radius: 50%;
+}
+
+.toggle-btn .icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.toggle-switch {
+  width: 22px;
+  height: 12px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 10px;
+  position: relative;
+  transition: background 0.25s ease;
+  display: inline-block;
+}
+
+.toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.5);
+  transition: transform 0.25s ease, background 0.25s ease;
+}
+
+/* Estado Activo del Toggle */
+.toggle-btn.active {
+  border-color: rgba(102, 252, 241, 0.4);
+  color: var(--accent);
+  background: rgba(102, 252, 241, 0.1);
+  box-shadow: 0 0 12px rgba(102, 252, 241, 0.15);
+}
+
+.toggle-btn.active .toggle-switch {
+  background: rgba(102, 252, 241, 0.4);
+}
+
+.toggle-btn.active .toggle-thumb {
+  transform: translateX(10px);
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+}
+
+.toggle-btn:hover {
+  border-color: rgba(255, 255, 255, 0.3);
+  color: #fff;
+}
+
+.hud-footer {
+  position: absolute;
+  bottom: 24px;
+  left: 0;
+  width: 100%;
+  text-align: center;
+  z-index: 10;
+  pointer-events: none;
+}
+
+.hud-footer .hint {
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.4);
+}

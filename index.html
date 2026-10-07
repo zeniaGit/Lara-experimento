@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>LARA — Experimento de Gravedad</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;900&family=Space+Grotesk:wght@300;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./src/style.css" />
+</head>
+<body>
+  <div id="app">
+    <canvas id="gravity-canvas"></canvas>
+    <header class="hud-header">
+      <div class="brand-tag">LARA • PHYSICS</div>
+      <div class="toggles-cluster">
+        <!-- Toggle Giroscopio -->
+        <button id="toggle-gyro" class="toggle-btn" aria-label="Toggle Giroscopio" title="Giroscopio">
+          <span class="icon">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/></svg>
+          </span>
+          <span class="toggle-switch"><span class="toggle-thumb"></span></span>
+        </button>
+
+        <!-- Toggle Micrófono -->
+        <button id="toggle-mic" class="toggle-btn" aria-label="Toggle Micrófono" title="Micrófono">
+          <span class="icon">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>
+          </span>
+          <span class="toggle-switch"><span class="toggle-thumb"></span></span>
+        </button>
+
+        <!-- Botón Replay compacto -->
+        <button id="btn-replay" class="toggle-btn icon-only" aria-label="Reiniciar caída" title="Reiniciar">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <footer class="hud-footer">
+      <p class="hint">Toca o arrastra cualquier letra • En móvil inclina la pantalla</p>
+    </footer>
+  </div>
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
