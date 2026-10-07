@@ -1,14 +1,14 @@
 import Matter from 'matter-js';
 
-// --- CONFIGURACIÓN & PARÁMETROS FÍSICOS ---
+// --- CONFIGURACIÓN & PARÁMETROS FÍSICOS (CRITICAL DAMPING) ---
 const CONFIG = {
   letters: ['L', 'A', 'R', 'A'],
   fontFamily: 'Cinzel',
-  dropDelay: 700, // ms entre caída de cada letra
+  dropDelay: 650, // ms entre caída de cada letra
   linePoints: 80, // resolución de la malla elástica
-  springK: 0.12,  // mayor firmeza para recuperar antes la posición
-  damping: 0.88,  // amortiguación más firme (frena la oscilación rápido)
-  spread: 0.20,   // propagación de onda elástica
+  springK: 0.24,  // alta rigidez elástica para firmeza inmediata
+  damping: 0.76,  // amortiguación crítica: absorbe la onda en 2-3 oscilaciones rápidas
+  spread: 0.16,   // propagación localizada
 };
 
 // Canvas Setup
@@ -154,15 +154,16 @@ function startFallingSequence() {
   });
 }
 
-// Detección de interacción continua tipo Cama Elástica / Trampolín
+// Detección e interacción elástica firme (Solver de impacto & contacto estricto)
 function updateTrampolinePhysics() {
   const lineSpacing = width / (CONFIG.linePoints - 1);
 
   for (let body of letterBodies) {
     if (body === draggedBody) continue;
 
-    const halfH = body.size / 2;
-    const bottomY = body.position.y + halfH;
+    // Altura visual real de la letra (baseline offset tipográfico de Cinzel: ~0.42 * size)
+    const baseContactRadius = body.size * 0.42;
+    const letterFootY = body.position.y + baseContactRadius;
     const bodyX = body.position.x;
 
     const nodeIndex = Math.min(
@@ -171,47 +172,52 @@ function updateTrampolinePhysics() {
     );
     const node = lineNodes[nodeIndex];
 
-    // Contacto directo con la línea de fondo
-    if (bottomY >= node.y) {
-      const penetration = bottomY - node.y;
+    // Contacto físico estricto con la cuerda
+    if (letterFootY >= node.y) {
+      const penetration = letterFootY - node.y;
 
-      // Si la letra impacta con velocidad significativa hacia abajo, deforma la línea
-      if (body.velocity.y > 0.8) {
-        perturbLine(bodyX, Math.min(body.velocity.y * 1.4 + penetration * 0.2, 35));
+      // Fase de Impacto dinámico
+      if (body.velocity.y > 1.2) {
+        // Deformación controlada y firme de la línea
+        perturbLine(bodyX, Math.min(body.velocity.y * 1.1 + penetration * 0.15, 25));
 
-        // Rebote hacia arriba
+        // Rebote elástico reactivo
         Body.setVelocity(body, {
           x: body.velocity.x * 0.9,
-          y: -body.velocity.y * 0.45,
+          y: -Math.min(body.velocity.y * 0.4, 8),
         });
       } else {
-        // En reposo: asentar la letra justo tocando la línea sin vibraciones
+        // Fase de Reposo: Contacto perfecto sin holgura (la base de la letra toca exactamente la línea)
         Body.setPosition(body, {
           x: body.position.x,
-          y: node.y - halfH,
+          y: node.y - baseContactRadius,
         });
 
-        // Frenar micro-velocidades residuales verticales
-        if (Math.abs(body.velocity.y) < 0.8) {
+        // Nivelar ángulo en reposo para que las letras queden erguidas y estables
+        Body.setAngle(body, body.angle * 0.88);
+        Body.setAngularVelocity(body, 0);
+
+        // Cancelar velocidad vertical residual para reposo absoluto
+        if (Math.abs(body.velocity.y) < 1.2) {
           Body.setVelocity(body, {
-            x: body.velocity.x * 0.95,
+            x: body.velocity.x * 0.92,
             y: 0,
           });
         }
       }
     }
 
-    // Límite superior: si la letra ya ha entrado en pantalla, evitar que desborde por arriba
-    const topY = body.position.y - halfH;
+    // Límite superior: evitar desbordamiento
+    const topY = body.position.y - baseContactRadius;
     if (topY <= 0 && body.hasImpacted) {
       Body.setPosition(body, {
         x: body.position.x,
-        y: halfH,
+        y: baseContactRadius,
       });
       if (body.velocity.y < 0) {
         Body.setVelocity(body, {
           x: body.velocity.x * 0.9,
-          y: -body.velocity.y * 0.6,
+          y: -body.velocity.y * 0.5,
         });
       }
     } else if (body.position.y > 50) {
@@ -220,34 +226,34 @@ function updateTrampolinePhysics() {
   }
 }
 
-// Update de la Cuerda Elástica (Ecuación Onda & Amortiguación con Reposo Absoluto)
+// Update de la Cuerda Elástica (Ecuación de onda con amortiguación crítica y reposo inamovible)
 function updateFloorMesh() {
-  let anyActiveNode = false;
+  let hasEnergy = false;
 
   for (let node of lineNodes) {
     const dy = node.targetY - node.y;
 
-    // Si la desviación es ínfima, congelar en equilibrio
-    if (Math.abs(dy) < 0.25 && Math.abs(node.vy) < 0.1) {
+    // Corte estricto de reposo: si la oscilación es minúscula, bloquear a 0
+    if (Math.abs(dy) < 0.35 && Math.abs(node.vy) < 0.15) {
       node.y = node.targetY;
       node.vy = 0;
       continue;
     }
 
-    anyActiveNode = true;
-    const force = dy * CONFIG.springK;
-    node.vy += force;
+    hasEnergy = true;
+    const springForce = dy * CONFIG.springK;
+    node.vy += springForce;
     node.vy *= CONFIG.damping;
     node.y += node.vy;
   }
 
-  // Si no hay ondas activas, no propagar para garantizar cero vibración
-  if (!anyActiveNode) return;
+  // Si no hay perturbaciones activas, reposo total: cero vibración parásita
+  if (!hasEnergy) return;
 
   const leftDeltas = new Float32Array(lineNodes.length);
   const rightDeltas = new Float32Array(lineNodes.length);
 
-  for (let iter = 0; iter < 4; iter++) {
+  for (let iter = 0; iter < 3; iter++) {
     for (let i = 0; i < lineNodes.length; i++) {
       if (i > 0) {
         leftDeltas[i] = CONFIG.spread * (lineNodes[i].y - lineNodes[i - 1].y);
