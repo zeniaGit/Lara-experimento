@@ -154,7 +154,7 @@ function startFallingSequence() {
   });
 }
 
-// Detección de interacción continua tipo Cama Elástica / Trampolín (Membrana Impenetrable)
+// Detección de interacción continua tipo Cama Elástica / Trampolín
 function updateTrampolinePhysics() {
   const lineSpacing = width / (CONFIG.linePoints - 1);
 
@@ -171,41 +171,34 @@ function updateTrampolinePhysics() {
     );
     const node = lineNodes[nodeIndex];
 
-    if (bottomY >= node.y - 2) {
+    // Contacto directo con la línea de fondo
+    if (bottomY >= node.y) {
       const penetration = bottomY - node.y;
 
-      // Solo perturbar la línea si la letra realmente se está moviendo hacia abajo con fuerza (tolerancia de reposo)
-      if (body.velocity.y > 0.4) {
+      // Si la letra impacta con velocidad significativa hacia abajo, deforma la línea
+      if (body.velocity.y > 0.8) {
         perturbLine(bodyX, Math.min(body.velocity.y * 1.4 + penetration * 0.2, 35));
-      }
 
-      const maxSink = 55;
-      if (penetration > maxSink) {
+        // Rebote hacia arriba
+        Body.setVelocity(body, {
+          x: body.velocity.x * 0.9,
+          y: -body.velocity.y * 0.45,
+        });
+      } else {
+        // En reposo: asentar la letra justo tocando la línea sin vibraciones
         Body.setPosition(body, {
           x: body.position.x,
-          y: node.y + maxSink - halfH,
+          y: node.y - halfH,
         });
+
+        // Frenar micro-velocidades residuales verticales
+        if (Math.abs(body.velocity.y) < 0.8) {
+          Body.setVelocity(body, {
+            x: body.velocity.x * 0.95,
+            y: 0,
+          });
+        }
       }
-
-      const lineDisplacement = Math.max(0, node.y - node.targetY);
-      const trampolineForce = (lineDisplacement * 0.0006 + penetration * 0.00045) * (body.mass || 1);
-
-      if (body.velocity.y > 2) {
-        Body.setVelocity(body, {
-          x: body.velocity.x * 0.85,
-          y: -Math.min(body.velocity.y * 0.55, 14),
-        });
-      } else if (node.vy < 0) {
-        Body.setVelocity(body, {
-          x: body.velocity.x,
-          y: Math.min(body.velocity.y, node.vy * 0.5),
-        });
-      }
-
-      Body.applyForce(body, body.position, {
-        x: (node.vy * 0.00005),
-        y: -trampolineForce,
-      });
     }
 
     // Límite superior: si la letra ya ha entrado en pantalla, evitar que desborde por arriba
@@ -216,35 +209,40 @@ function updateTrampolinePhysics() {
         y: halfH,
       });
       if (body.velocity.y < 0) {
-        // Rebote hacia abajo
         Body.setVelocity(body, {
           x: body.velocity.x * 0.9,
           y: -body.velocity.y * 0.6,
         });
       }
     } else if (body.position.y > 50) {
-      body.hasImpacted = true; // Ya entró en la pantalla
+      body.hasImpacted = true;
     }
   }
 }
 
-// Update de la Cuerda Elástica (Ecuación Onda & Amortiguación con Zona Muerta de Tolerancia)
+// Update de la Cuerda Elástica (Ecuación Onda & Amortiguación con Reposo Absoluto)
 function updateFloorMesh() {
+  let anyActiveNode = false;
+
   for (let node of lineNodes) {
     const dy = node.targetY - node.y;
 
-    // Tolerancia / Zona muerta: si la oscilación es minúscula (< 0.15px), reposar totalmente
-    if (Math.abs(dy) < 0.15 && Math.abs(node.vy) < 0.08) {
+    // Si la desviación es ínfima, congelar en equilibrio
+    if (Math.abs(dy) < 0.25 && Math.abs(node.vy) < 0.1) {
       node.y = node.targetY;
       node.vy = 0;
       continue;
     }
 
+    anyActiveNode = true;
     const force = dy * CONFIG.springK;
     node.vy += force;
     node.vy *= CONFIG.damping;
     node.y += node.vy;
   }
+
+  // Si no hay ondas activas, no propagar para garantizar cero vibración
+  if (!anyActiveNode) return;
 
   const leftDeltas = new Float32Array(lineNodes.length);
   const rightDeltas = new Float32Array(lineNodes.length);
