@@ -1,4 +1,5 @@
 import Matter from 'matter-js';
+import { soundManager } from './audioManager.js';
 
 // --- CONFIGURACIÓN & PARÁMETROS FÍSICOS (CRITICAL DAMPING) ---
 const CONFIG = {
@@ -18,7 +19,7 @@ let width = (canvas.width = window.innerWidth);
 let height = (canvas.height = window.innerHeight);
 
 // Matter.js Modules
-const { Engine, World, Bodies, Body, Vector } = Matter;
+const { Engine, World, Bodies, Body } = Matter;
 
 const engine = Engine.create({
   gravity: { x: 0, y: 1.25, scale: 0.001 },
@@ -55,6 +56,7 @@ World.add(world, [floorBody, leftWall, rightWall]);
 
 let letterBodies = [];
 
+
 // --- PUNTOS EN PENTÁGONO CON 5 COLORES ---
 const COLOR_POINTS = [
   { name: 'morado', color: '#a55eea', r: 165, g: 94, b: 234 },
@@ -64,16 +66,20 @@ const COLOR_POINTS = [
   { name: 'rojo', color: '#fc5c65', r: 252, g: 92, b: 101 },
 ];
 
+let pentagonRotationAngle = Math.random() * Math.PI * 2;
 let pentagonNodes = [];
 
-function initPentagonPoints() {
+function initPentagonPoints(randomize = false) {
+  if (randomize) {
+    pentagonRotationAngle = Math.random() * Math.PI * 2;
+  }
   pentagonNodes = [];
   const centerX = width / 2;
   const centerY = height * 0.48;
   const radius = Math.min(width, height) * 0.27;
 
   for (let i = 0; i < 5; i++) {
-    const angle = -Math.PI / 2 + (i * 2 * Math.PI) / 5;
+    const angle = -Math.PI / 2 + pentagonRotationAngle + (i * 2 * Math.PI) / 5;
     const x = centerX + Math.cos(angle) * radius;
     const y = centerY + Math.sin(angle) * radius;
     pentagonNodes.push({
@@ -88,7 +94,7 @@ function initPentagonPoints() {
     });
   }
 }
-initPentagonPoints();
+initPentagonPoints(true);
 
 // Dimensiones de letra responsivas
 function getLetterSize() {
@@ -123,6 +129,7 @@ function spawnLetter(char, index) {
     azul: 0,
     rojo: 0,
   };
+  body.touchingPoints = {};
 
   letterBodies.push(body);
   World.add(world, body);
@@ -142,6 +149,7 @@ function perturbLine(impactX, force) {
 
 // Secuencia de Caída
 function startFallingSequence() {
+  initPentagonPoints(true);
   for (let b of letterBodies) {
     World.remove(world, b);
   }
@@ -350,9 +358,18 @@ function render() {
 
   // Comprobar contacto entre cada letra y cada punto del pentágono
   for (let body of letterBodies) {
+    if (!body.touchingPoints) body.touchingPoints = {};
+
     for (let pt of pentagonNodes) {
-      if (Matter.Bounds.contains(body.bounds, { x: pt.x, y: pt.y })) {
+      const isTouching = Matter.Bounds.contains(body.bounds, { x: pt.x, y: pt.y });
+      if (isTouching) {
         body.colorContactTimes[pt.name] = (body.colorContactTimes[pt.name] || 0) + 1;
+        if (!body.touchingPoints[pt.name]) {
+          body.touchingPoints[pt.name] = true;
+          soundManager.playGlitter();
+        }
+      } else {
+        body.touchingPoints[pt.name] = false;
       }
     }
 
@@ -663,7 +680,7 @@ window.addEventListener('resize', () => {
   width = canvas.width = window.innerWidth;
   height = canvas.height = window.innerHeight;
   initFloorMesh();
-  initPentagonPoints();
+  initPentagonPoints(false);
   Body.setPosition(floorBody, { x: width / 2, y: height + 150 });
   Body.setPosition(rightWall, { x: width + 20, y: height / 2 });
 });
