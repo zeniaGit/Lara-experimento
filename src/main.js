@@ -1108,10 +1108,14 @@ function updateTrampolinePhysics() {
         perturbLine(bodyX, Math.min(body.velocity.y * 1.4 + penetration * 0.2, 34));
 
         // Rebote elástico
+        const bounceFactor = isGyroActive ? 0.82 : 0.55;
         Body.setVelocity(body, {
-          x: body.velocity.x * 0.9,
-          y: -Math.min(body.velocity.y * 0.55, 12),
+          x: body.velocity.x * (isGyroActive ? 0.98 : 0.9),
+          y: -Math.min(body.velocity.y * bounceFactor, isGyroActive ? 20 : 12),
         });
+        if (isGyroActive && body.velocity.y > 2.2) {
+          soundManager.playWoodGlassHit(Math.min(body.velocity.y / 14, 1.0));
+        }
       } else if (!isGyroActive) {
         // En reposo estándar: solo fijar si el giroscopio no está activo
         if (body.velocity.y >= 0) {
@@ -1131,10 +1135,14 @@ function updateTrampolinePhysics() {
           }
         }
       } else {
-        // En modo giroscopio/relax: rebotan libremente hacia arriba
+        // En modo giroscopio/relax: rodamiento fluido sobre la base sin saltos parásitos
+        Body.setPosition(body, {
+          x: body.position.x,
+          y: node.y - baseContactRadius,
+        });
         Body.setVelocity(body, {
-          x: body.velocity.x * 0.95,
-          y: -Math.max(Math.abs(body.velocity.y) * 0.8, 2.4),
+          x: body.velocity.x * 0.992,
+          y: Math.min(0, body.velocity.y),
         });
       }
     }
@@ -1238,6 +1246,9 @@ function render(currentTime = performance.now()) {
 
     Engine.update(engine, dt);
     containLetters();
+    if (isGyroActive) {
+      updateRelaxMarblesPhysics(dt);
+    }
     updateSpecialBrick(dt, currentTime);
     processBrickHits();
     processPendingBreaks();
@@ -1418,6 +1429,7 @@ function onPointerDown(e) {
     return;
   }
 
+  let touchedLetter = false;
   for (let body of letterBodies) {
     if (Matter.Bounds.contains(body.bounds, pos)) {
       draggedBody = body;
@@ -1429,50 +1441,74 @@ function onPointerDown(e) {
       if (e.cancelable && e.type && e.type.startsWith('touch')) {
         e.preventDefault();
       }
+      touchedLetter = true;
       break;
+    }
+  }
+
+  // Si estamos en modo relax y no se tocó una letra, permitir inclinar la caja deslizando la pantalla
+  if (isGyroActive && !touchedLetter) {
+    isVirtualTilting = true;
+    virtualTiltStart = { x: pos.x, y: pos.y };
+    if (e.cancelable && e.type && e.type.startsWith('touch')) {
+      e.preventDefault();
     }
   }
 }
 
 function onPointerMove(e) {
-  if (!draggedBody) return;
-  if (e.cancelable && e.type && e.type.startsWith('touch')) {
-    e.preventDefault();
-  }
-
   const pos = getPointerPos(e);
   if (!Number.isFinite(pos.x) || !Number.isFinite(pos.y)) return;
 
-  const now = performance.now();
-  const halfH = draggedBody.size / 2;
-  const rawX = pos.x - dragOffset.x;
-  const rawY = pos.y - dragOffset.y;
+  if (draggedBody) {
+    if (e.cancelable && e.type && e.type.startsWith('touch')) {
+      e.preventDefault();
+    }
 
-  // Registrar trayectoria para inercia de lanzamiento
-  dragHistory.push({ x: rawX, y: rawY, t: now });
-  if (dragHistory.length > 5) dragHistory.shift();
+    const now = performance.now();
+    const halfH = draggedBody.size / 2;
+    const rawX = pos.x - dragOffset.x;
+    const rawY = pos.y - dragOffset.y;
 
-  // Si se intenta arrastrar la letra hacia arriba desde la zona de lanzamiento,
-  // pierde el agarre a los 50px de subida para que los papirotes cojan velocidad sin subir pegada al ladrillo
-  if (!isGyroActive && (dragStartY - pos.y) >= 50) {
-    onPointerUp();
+    // Registrar trayectoria para inercia de lanzamiento
+    dragHistory.push({ x: rawX, y: rawY, t: now });
+    if (dragHistory.length > 5) dragHistory.shift();
+
+    // Si se intenta arrastrar la letra hacia arriba desde la zona de lanzamiento,
+    // pierde el agarre a los 50px de subida para que los papirotes cojan velocidad sin subir pegada al ladrillo
+    if (!isGyroActive && (dragStartY - pos.y) >= 50) {
+      onPointerUp();
+      return;
+    }
+
+    const targetX = Math.max(30, Math.min(width - 30, rawX));
+    const glyphTop = -getGlyphMask(draggedBody.char, draggedBody.size).top;
+    const minY = (!isGyroActive && bricks.some((b) => b.alive)) ? getBricksBottom() + glyphTop + 3 : halfH;
+    const targetY = Math.max(minY, Math.min(height - halfH, rawY));
+
+    const vx = (targetX - draggedBody.position.x) * 0.45;
+    const vy = (targetY - draggedBody.position.y) * 0.45;
+
+    Body.setPosition(draggedBody, { x: targetX, y: targetY });
+    Body.setVelocity(draggedBody, { x: vx, y: vy });
+    Body.setAngularVelocity(draggedBody, 0);
     return;
   }
 
-  const targetX = Math.max(30, Math.min(width - 30, rawX));
-  const glyphTop = -getGlyphMask(draggedBody.char, draggedBody.size).top;
-  const minY = (!isGyroActive && bricks.some((b) => b.alive)) ? getBricksBottom() + glyphTop + 3 : halfH;
-  const targetY = Math.max(minY, Math.min(height - halfH, rawY));
-
-  const vx = (targetX - draggedBody.position.x) * 0.45;
-  const vy = (targetY - draggedBody.position.y) * 0.45;
-
-  Body.setPosition(draggedBody, { x: targetX, y: targetY });
-  Body.setVelocity(draggedBody, { x: vx, y: vy });
-  Body.setAngularVelocity(draggedBody, 0);
+  // Inclinación virtual deslizando el dedo o ratón en modo relax
+  if (isGyroActive && isVirtualTilting) {
+    if (e.cancelable && e.type && e.type.startsWith('touch')) {
+      e.preventDefault();
+    }
+    const dx = (pos.x - virtualTiltStart.x) / (width * 0.28);
+    const dy = (pos.y - virtualTiltStart.y) / (height * 0.28);
+    targetTilt.x = Math.max(-1.2, Math.min(1.2, dx));
+    targetTilt.y = Math.max(-1.2, Math.min(1.2, dy));
+  }
 }
 
 function onPointerUp() {
+  isVirtualTilting = false;
   if (draggedBody) {
     let vx = 0;
     let vy = 0;
@@ -1506,27 +1542,95 @@ canvas.addEventListener('touchstart', onPointerDown, { passive: false });
 window.addEventListener('touchmove', onPointerMove, { passive: false });
 window.addEventListener('touchend', onPointerUp);
 
-// --- GESTIÓN DE TOGGLE: GIROSCOPIO ---
+// --- GESTIÓN DE TOGGLE: GIROSCOPIO / MODO RELAX (FÓRMULA DE BOLINES) ---
 const toggleGyro = document.getElementById('toggle-gyro');
 
 let isGyroActive = false;
-
-// 1. LÓGICA TOGGLE GIROSCOPIO: MODO CAJA DE BOLAS (RELAX & FÍSICA VIVA)
+let targetTilt = { x: 0, y: 0.9 };
+let currentTilt = { x: 0, y: 0.9 };
 let lastBeta = null;
 let lastGamma = null;
 let lastOrientTime = 0;
+let isVirtualTilting = false;
+let virtualTiltStart = { x: 0, y: 0 };
+let relaxToastTimeout = null;
+
+function showRelaxToast() {
+  const popup = document.getElementById('relax-popup');
+  if (!popup) return;
+  if (relaxToastTimeout) clearTimeout(relaxToastTimeout);
+  popup.hidden = false;
+  requestAnimationFrame(() => {
+    popup.classList.add('visible');
+  });
+  relaxToastTimeout = setTimeout(() => {
+    popup.classList.remove('visible');
+    setTimeout(() => {
+      popup.hidden = true;
+    }, 250);
+  }, 3500);
+}
+
+function updateFooterHint() {
+  const hintEl = document.querySelector('.hint');
+  if (!hintEl) return;
+  if (isGyroActive) {
+    hintEl.innerHTML = '🎳 <strong>Modo Relax:</strong> ¡Inclina la pantalla o desliza para rodar las canicas!';
+  } else {
+    hintEl.textContent = '¡Lanza usando los Papirotes!';
+  }
+}
 
 function wakeAllLetters() {
   letterBodies.forEach(b => {
     Matter.Sleeping.set(b, false);
-    b.frictionAir = 0.001; // Fluido como el aire, no como agua
-    b.restitution = 0.85;  // Rebote elástico vivo como canicas de cristal
-    b.friction = 0.05;     // Rodamiento ágil sin freno
+    b.frictionAir = 0.0006;
+    b.restitution = 0.86;
+    b.friction = 0.018;
     Body.setVelocity(b, {
-      x: (Math.random() - 0.5) * 6,
-      y: -5 - Math.random() * 3,
+      x: (Math.random() - 0.5) * 8,
+      y: -6 - Math.random() * 4,
     });
   });
+}
+
+// FÓRMULA DE BOLINES: Aceleración continua por fotograma de plano inclinado + rodamiento angular
+function updateRelaxMarblesPhysics(dt) {
+  if (!isGyroActive) return;
+
+  const dtNorm = Math.min(2.5, Math.max(0.5, dt / 16.6));
+  const lerpFactor = Math.min(1, 0.16 * dtNorm);
+  currentTilt.x += (targetTilt.x - currentTilt.x) * lerpFactor;
+  currentTilt.y += (targetTilt.y - currentTilt.y) * lerpFactor;
+
+  // Aceleración continua en px/frame: simula la gravedad según el grado de inclinación
+  const accelPower = 0.48 * dtNorm;
+  const maxSpeed = 30;
+
+  for (const b of letterBodies) {
+    if (b === draggedBody) continue;
+    Matter.Sleeping.set(b, false);
+
+    b.frictionAir = 0.0006;
+    b.restitution = 0.86;
+    b.friction = 0.018;
+
+    let vx = b.velocity.x + currentTilt.x * accelPower;
+    let vy = b.velocity.y + currentTilt.y * accelPower;
+
+    const speed = Math.hypot(vx, vy);
+    if (speed > maxSpeed) {
+      const scale = maxSpeed / speed;
+      vx *= scale;
+      vy *= scale;
+    }
+
+    Body.setVelocity(b, { x: vx, y: vy });
+
+    // Rodamiento angular realista: las bolas giran al rodar
+    const radius = Math.max(12, b.size * 0.42);
+    Body.setAngularVelocity(b, (vx / radius) * 0.32);
+  }
 }
 
 function handleOrientation(e) {
@@ -1535,28 +1639,17 @@ function handleOrientation(e) {
   const beta = e.beta;   // inclinación adelante/atrás (-180 a 180)
   if (gamma === null || beta === null) return;
 
-  const tiltX = Math.max(-1, Math.min(1, Math.sin((gamma * Math.PI) / 180)));
-  const isFlat = Math.abs(beta) < 18 && Math.abs(gamma) < 70;
-  const tiltY = isFlat 
-    ? Math.max(-1, Math.min(1, Math.sin((beta * Math.PI) / 180)))
-    : Math.max(-1, Math.min(1, (beta - 25) / 50));
+  const radGamma = (gamma * Math.PI) / 180;
+  const radBeta = (beta * Math.PI) / 180;
 
-  engine.gravity.x = tiltX * 2.8;
-  engine.gravity.y = tiltY * 2.8;
+  const tx = Math.max(-1.1, Math.min(1.1, Math.sin(radGamma) * 1.35));
+  const isFlat = Math.abs(beta) < 20 && Math.abs(gamma) < 70;
+  const ty = isFlat
+    ? Math.max(-1.1, Math.min(1.1, Math.sin(radBeta) * 1.35))
+    : Math.max(-1.1, Math.min(1.1, Math.sin(((beta - 32) * Math.PI) / 90) * 1.35));
 
-  // Aceleración continua al inclinar: como canicas en una caja
-  const accelFactor = 0.35;
-  letterBodies.forEach(b => {
-    Matter.Sleeping.set(b, false);
-    b.frictionAir = 0.001;
-    b.restitution = 0.85;
-    b.friction = 0.05;
-
-    Body.setVelocity(b, {
-      x: b.velocity.x + tiltX * accelFactor,
-      y: b.velocity.y + tiltY * accelFactor,
-    });
-  });
+  targetTilt.x = tx;
+  targetTilt.y = ty;
 
   // Sacudida rápida por giro angular
   const now = performance.now();
@@ -1565,11 +1658,12 @@ function handleOrientation(e) {
     const speedGamma = (gamma - lastGamma) / dt;
     const speedBeta = (beta - lastBeta) / dt;
     const shakeSpeed = Math.hypot(speedGamma, speedBeta);
-    if (shakeSpeed > 140) {
-      const impulse = Math.min((shakeSpeed - 140) * 0.035, 20);
+    if (shakeSpeed > 130) {
+      const impulse = Math.min((shakeSpeed - 130) * 0.04, 22);
       const dirX = speedGamma / shakeSpeed;
       const dirY = speedBeta / shakeSpeed;
       letterBodies.forEach(b => {
+        if (b === draggedBody) return;
         Body.setVelocity(b, {
           x: b.velocity.x + dirX * impulse * (0.8 + Math.random() * 0.4),
           y: b.velocity.y + dirY * impulse * (0.8 + Math.random() * 0.4),
@@ -1582,7 +1676,7 @@ function handleOrientation(e) {
   lastOrientTime = now;
 }
 
-// Acelerómetro: respuesta inmediata cuando se agita el móvil
+// Acelerómetro: respuesta inmediata cuando se agita el móvil como una caja de canicas
 function handleMotion(e) {
   if (!isGyroActive) return;
   const acc = e.acceleration || e.accelerationIncludingGravity;
@@ -1590,12 +1684,12 @@ function handleMotion(e) {
   const ax = acc.x ?? 0;
   const ay = acc.y ?? 0;
   const mag = Math.hypot(ax, ay);
-  if (mag > 3.0) {
-    // Al agitar, se mueven inmediatamente como bolas a la velocidad de la sacudida
-    const shakePower = Math.min((mag - 3.0) * 1.1, 22);
+  if (mag > 2.8) {
+    const shakePower = Math.min((mag - 2.8) * 1.3, 24);
     const dirX = -ax / (mag || 1);
     const dirY = ay / (mag || 1);
     letterBodies.forEach(b => {
+      if (b === draggedBody) return;
       Matter.Sleeping.set(b, false);
       Body.setVelocity(b, {
         x: b.velocity.x + dirX * shakePower * (0.85 + Math.random() * 0.3),
@@ -1605,21 +1699,11 @@ function handleMotion(e) {
   }
 }
 
-// Fallback para escritorio/laptop: inclina la caja al mover el ratón
+// Fallback para escritorio: inclina la caja según la posición del ratón
 function handleDesktopMouseTilt(e) {
   if (!isGyroActive) return;
-  const normX = (e.clientX / width - 0.5) * 2;
-  const normY = (e.clientY / height - 0.5) * 2;
-  engine.gravity.x = normX * 2.5;
-  engine.gravity.y = normY * 2.5;
-  const accel = 0.28;
-  letterBodies.forEach(b => {
-    Matter.Sleeping.set(b, false);
-    Body.setVelocity(b, {
-      x: b.velocity.x + normX * accel,
-      y: b.velocity.y + normY * accel,
-    });
-  });
+  targetTilt.x = (e.clientX / width - 0.5) * 2;
+  targetTilt.y = (e.clientY / height - 0.5) * 2;
 }
 
 // Sonido al chocar las canicas entre sí en modo relax
@@ -1641,6 +1725,8 @@ Matter.Events.on(engine, 'collisionStart', (event) => {
 async function enableGyro() {
   const onGranted = () => {
     isGyroActive = true;
+    targetTilt = { x: 0, y: 0.9 };
+    currentTilt = { x: 0, y: 0.9 };
     toggleGyro.classList.add('active');
     wakeAllLetters();
     // Modo relax: quitar ladrillos, suspender juego y cerrar modal de ranking
@@ -1653,6 +1739,9 @@ async function enableGyro() {
     window.addEventListener('deviceorientation', handleOrientation, true);
     window.addEventListener('devicemotion', handleMotion, true);
     window.addEventListener('mousemove', handleDesktopMouseTilt, true);
+
+    showRelaxToast();
+    updateFooterHint();
   };
 
   // En iOS 13+ solicitamos permiso de orientación
@@ -1671,17 +1760,21 @@ async function enableGyro() {
 
 function disableGyro() {
   isGyroActive = false;
+  isVirtualTilting = false;
   window.removeEventListener('deviceorientation', handleOrientation, true);
   window.removeEventListener('devicemotion', handleMotion, true);
   window.removeEventListener('mousemove', handleDesktopMouseTilt, true);
   toggleGyro.classList.remove('active');
   engine.gravity.x = 0;
   engine.gravity.y = 1.25;
+  targetTilt = { x: 0, y: 0.9 };
+  currentTilt = { x: 0, y: 0.9 };
   letterBodies.forEach(b => {
     b.frictionAir = 0.01;
     b.restitution = 0.28;
     b.friction = 0.5;
   });
+  updateFooterHint();
   startGame(); // Restaura los ladrillos y el juego al salir del modo giroscopio
 }
 
