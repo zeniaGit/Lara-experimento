@@ -13,7 +13,13 @@
   <div id="app">
     <canvas id="gravity-canvas"></canvas>
     <header class="hud-header">
-      <div class="brand-tag">LARA • PHYSICS</div>
+      <div class="brand-group">
+        <div id="words-cluster" class="words-cluster"></div>
+        <button id="btn-add-word" class="word-add-btn" aria-label="Crear nombre" title="Crear nombre">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        </button>
+        <span class="brand-tag-label">• PHYSICS</span>
+      </div>
       <div class="toggles-cluster">
         <!-- Toggle Giroscopio -->
         <button id="toggle-gyro" class="toggle-btn" aria-label="Toggle Giroscopio" title="Giroscopio">
@@ -31,7 +37,11 @@
           <span class="toggle-switch"><span class="toggle-thumb"></span></span>
         </button>
 
+        <!-- Botón de sonido: efectos / efectos + música / sin sonido -->
+        <button id="toggle-music" class="toggle-btn sound-btn" aria-label="Sonido" title="Sonido"></button>
+
         <!-- Botón Replay compacto -->
+
         <button id="btn-replay" class="toggle-btn icon-only" aria-label="Reiniciar caída" title="Reiniciar">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
         </button>
@@ -39,8 +49,83 @@
     </header>
 
     <footer class="hud-footer">
-      <p class="hint">Toca o arrastra cualquier letra • En móvil inclina la pantalla</p>
+      <div id="footer-ticker" class="footer-ticker">
+        <div class="footer-ticker-track">
+          <span class="ticker-text">✦ Juega hasta que tu mami o papi te deje ✦</span>
+        </div>
+      </div>
+      <p class="hint">¡Lanza usando los Papirotes!</p>
     </footer>
+
+    <!-- Popup de nivel de dificultad al cambiar nombres -->
+    <div id="difficulty-popup" class="difficulty-toast" hidden>
+      <span class="diff-level" id="diff-toast-level">NIVEL 1 · FÁCIL</span>
+      <span class="diff-sub" id="diff-toast-sub">1 FILA · LETRAS GRANDES</span>
+    </div>
+
+    <!-- Modal para crear nuevo nombre -->
+    <div id="modal-add-word" class="modal-backdrop" hidden>
+      <div class="modal-box">
+        <div class="modal-header">
+          <h3>CREAR NOMBRE</h3>
+          <button id="btn-close-modal" class="modal-close" aria-label="Cerrar">&times;</button>
+        </div>
+        <form id="form-add-word" class="modal-form">
+          <input
+            type="text"
+            id="input-word-name"
+            class="modal-input"
+            placeholder="Escribe un nombre..."
+            maxlength="12"
+            autocomplete="off"
+            required
+          />
+          <div class="modal-actions">
+            <button type="button" id="btn-cancel-modal" class="modal-btn secondary">Cancelar</button>
+            <button type="submit" class="modal-btn primary">Añadir</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Modal fin de partida + ranking -->
+    <div id="modal-game-over" class="modal-backdrop" hidden>
+      <div class="modal-box">
+        <div class="modal-header">
+          <h3 id="go-title">¡NIVEL COMPLETADO!</h3>
+        </div>
+        <p id="go-summary" class="go-summary"></p>
+        <form id="form-score" class="modal-form">
+          <input
+            type="text"
+            id="input-player-name"
+            class="modal-input"
+            placeholder="Tu nombre..."
+            maxlength="10"
+            autocomplete="off"
+            required
+          />
+          <div class="modal-actions">
+            <button type="button" id="btn-skip-score" class="modal-btn secondary">Cancelar</button>
+            <button type="submit" class="modal-btn primary">Guardar</button>
+          </div>
+        </form>
+        <div id="ranking-box" hidden>
+          <div id="ranking-tabs" class="ranking-tabs">
+            <button type="button" class="rank-tab-btn" data-level="1">LVL 1</button>
+            <button type="button" class="rank-tab-btn" data-level="2">LVL 2</button>
+            <button type="button" class="rank-tab-btn" data-level="3">LVL 3</button>
+            <button type="button" class="rank-tab-btn" data-level="4">LVL 4</button>
+          </div>
+          <p id="ranking-empty" class="ranking-empty" hidden>Sin puntuaciones aún en este nivel</p>
+          <ol id="ranking-list" class="ranking-list"></ol>
+          <div class="modal-actions">
+            <button type="button" id="btn-close-ranking" class="modal-btn secondary">Cerrar</button>
+            <button type="button" id="btn-play-again" class="modal-btn primary">Jugar de nuevo</button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
   <script type="module" src="./src/main.js"></script>
 </body>

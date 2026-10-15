@@ -9,6 +9,7 @@ class SoundManager {
 
     this.sparkleFrequencies = [2093, 2637, 3136, 3951, 4700, 5274]; // Escala cristalina C7-E8
     this.isUnlocked = false;
+    this.fxEnabled = true;
 
     this.setupUnlockListeners();
   }
@@ -62,6 +63,7 @@ class SoundManager {
   }
 
   playGlitter() {
+    if (!this.fxEnabled) return;
     const nowMs = performance.now();
     // Throttle rápido (mínimo 70ms entre llamadas)
     if (nowMs - this.lastTriggerTime < 70) return;
@@ -139,6 +141,265 @@ class SoundManager {
       this.activeVoices = Math.max(0, this.activeVoices - 1);
       masterGain.disconnect();
     }, 450);
+  }
+
+  // Cristal roto: crujido de ruido agudo + fragmentos tintineantes inarmónicos
+  playGlassBreak() {
+    if (!this.fxEnabled) return;
+    const ctx = this.getAudioContext();
+    if (!ctx || ctx.state !== 'running') {
+      if (ctx && ctx.state === 'suspended') ctx.resume().catch(() => {});
+      return;
+    }
+
+    const now = ctx.currentTime;
+    const masterGain = ctx.createGain();
+    masterGain.gain.setValueAtTime(0.35, now);
+    masterGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.7);
+    masterGain.connect(ctx.destination);
+
+    if (this.noiseBuffer) {
+      try {
+        const noise = ctx.createBufferSource();
+        noise.buffer = this.noiseBuffer;
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'highpass';
+        filter.frequency.setValueAtTime(3500, now);
+        const noiseGain = ctx.createGain();
+        noiseGain.gain.setValueAtTime(0.9, now);
+        noiseGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.14);
+        noise.connect(filter);
+        filter.connect(noiseGain);
+        noiseGain.connect(masterGain);
+        noise.start(now);
+      } catch {
+        // continuar con los tintineos
+      }
+    }
+
+    for (let i = 0; i < 9; i++) {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'triangle';
+      const start = now + Math.random() * 0.22;
+      const dur = 0.05 + Math.random() * 0.12;
+      osc.frequency.setValueAtTime(2400 + Math.random() * 5200, start);
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(0.18, start + 0.003);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + dur);
+      osc.connect(gain);
+      gain.connect(masterGain);
+      osc.start(start);
+      osc.stop(start + dur + 0.02);
+    }
+
+    setTimeout(() => masterGain.disconnect(), 800);
+  }
+
+  // Victoria: fanfarria "ti ti ti tiii, ti tiii, ti ti tiiii" + aplauso breve
+  playVictory() {
+    if (!this.fxEnabled) return;
+    const ctx = this.getAudioContext();
+    if (!ctx || ctx.state !== 'running') {
+      if (ctx && ctx.state === 'suspended') ctx.resume().catch(() => {});
+      return;
+    }
+
+    const now = ctx.currentTime + 0.05;
+    const master = ctx.createGain();
+    master.gain.value = 0.4;
+    master.connect(ctx.destination);
+
+    // [midi, duración en segundos]
+    const fanfare = [
+      [72, 0.11], [72, 0.11], [72, 0.11], [72, 0.38],
+      [68, 0.38], [70, 0.38],
+      [72, 0.13], [70, 0.13], [72, 0.9],
+    ];
+    let t = now;
+    for (const [midi, dur] of fanfare) {
+      for (const [type, mult, level] of [['square', 1, 0.22], ['triangle', 0.5, 0.35]]) {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(440 * Math.pow(2, (midi - 69) / 12) * mult, t);
+        gain.gain.setValueAtTime(0.0001, t);
+        gain.gain.exponentialRampToValueAtTime(level, t + 0.01);
+        gain.gain.setValueAtTime(level, t + dur * 0.75);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + dur * 0.98);
+        osc.connect(gain);
+        gain.connect(master);
+        osc.start(t);
+        osc.stop(t + dur);
+      }
+      t += dur;
+    }
+
+    // Aplauso: multitud estéreo de muchas palmas superpuestas, suavizadas y normalizadas
+    try {
+      const applauseStart = now + 1.2;
+      const length = 2.6;
+      const sr = ctx.sampleRate;
+      const total = Math.floor(sr * length);
+      const buffer = ctx.createBuffer(2, total, sr);
+
+      for (let ch = 0; ch < 2; ch++) {
+        const data = buffer.getChannelData(ch);
+        let i = 0;
+        while (i < total) {
+          const pos = i / total;
+          // Envolvente: crece rápido, se mantiene y se desvanece al final
+          const swell = Math.min(1, pos / 0.25);
+          const fade = pos > 0.55 ? Math.max(0, 1 - (pos - 0.55) / 0.45) : 1;
+          const level = swell * swell * (3 - 2 * Math.min(1, swell)) * fade * fade;
+
+          // Cada palma: ataque suave y caída exponencial con ruido filtrado
+          const clapLen = Math.floor(sr * (0.015 + Math.random() * 0.03));
+          const attack = Math.max(2, Math.floor(sr * 0.0015));
+          const amp = (0.25 + Math.random() * 0.75) * level;
+          let lp = 0;
+          for (let k = 0; k < clapLen && i + k < total; k++) {
+            lp += 0.28 * ((Math.random() * 2 - 1) - lp); // paso bajo: quita el siseo agudo
+            const env = Math.min(1, k / attack) * Math.exp(-k / (clapLen * 0.28));
+            data[i + k] += lp * amp * env;
+          }
+          // Alta densidad para textura de multitud, no de chasquidos aislados
+          i += Math.max(1, Math.floor(sr * (0.0015 + Math.random() * 0.01 * (1.15 - level))));
+        }
+
+        // Normalizar para evitar saturación
+        let peak = 0;
+        for (let k = 0; k < total; k++) peak = Math.max(peak, Math.abs(data[k]));
+        if (peak > 0) {
+          const norm = 0.85 / peak;
+          for (let k = 0; k < total; k++) data[k] *= norm;
+        }
+      }
+
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      const high = ctx.createBiquadFilter();
+      high.type = 'highpass';
+      high.frequency.value = 450;
+      const low = ctx.createBiquadFilter();
+      low.type = 'lowpass';
+      low.frequency.value = 5500;
+      const gain = ctx.createGain();
+      gain.gain.value = 0.55;
+      source.connect(high);
+      high.connect(low);
+      low.connect(gain);
+      gain.connect(master);
+      source.start(applauseStart);
+    } catch {
+      // sin aplauso si falla el búfer
+    }
+
+    setTimeout(() => master.disconnect(), 4200);
+  }
+
+  // Música: Tetris (Korobeiniki) extendido, notas MIDI [nota, duración en tiempos] (0 = silencio)
+  startMusic() {
+    if (this.musicTimer) return;
+    const ctx = this.getAudioContext();
+    if (!ctx) return;
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+
+    const beat = 60 / 150;
+
+    // Cada sección: compases de 4 tiempos con su fundamental de bajo
+    const A = {
+      bass: [40, 45, 40, 45],
+      notes: [
+        [76, 1], [71, 0.5], [72, 0.5], [74, 1], [72, 0.5], [71, 0.5],
+        [69, 1], [69, 0.5], [72, 0.5], [76, 1], [74, 0.5], [72, 0.5],
+        [71, 1.5], [72, 0.5], [74, 1], [76, 1],
+        [72, 1], [69, 1], [69, 2],
+      ],
+    };
+    const A2 = {
+      bass: A.bass,
+      notes: [...A.notes.slice(0, -3), [72, 1], [69, 1], [69, 1], [0, 1]],
+    };
+    const B = {
+      bass: [50, 48, 40, 45],
+      notes: [
+        [74, 1.5], [77, 0.5], [81, 1], [79, 0.5], [77, 0.5],
+        [76, 1.5], [72, 0.5], [76, 1], [74, 0.5], [72, 0.5],
+        [71, 1], [71, 0.5], [72, 0.5], [74, 1], [76, 1],
+        [72, 1], [69, 1], [69, 2],
+      ],
+    };
+    const up = (s) => ({ bass: s.bass, notes: s.notes.map(([m, d]) => [m ? m + 12 : 0, d]) });
+    const C = {
+      bass: [45, 40, 45, 40, 45, 40, 45, 45],
+      notes: [
+        [76, 2], [72, 2], [74, 2], [71, 2], [72, 2], [69, 2], [68, 4],
+        [76, 2], [72, 2], [74, 2], [71, 2], [72, 2], [76, 2], [81, 4],
+      ],
+    };
+
+    const sections = [A, A2, B, up(B), C, up(A), A2, B];
+    const melody = [];
+    const bass = [];
+    for (const s of sections) {
+      melody.push(...s.notes);
+      // Bajo "oom-pah": fundamental y quinta alternadas, un golpe por tiempo
+      for (const root of s.bass) {
+        bass.push([root, 1], [root + 7, 1], [root, 1], [root + 7, 1]);
+      }
+    }
+
+    this.musicGain = ctx.createGain();
+    this.musicGain.gain.value = 0.035;
+    this.musicGain.connect(ctx.destination);
+
+    const tracks = [
+      { notes: melody, type: 'square', level: 1, i: 0, t: ctx.currentTime + 0.1 },
+      { notes: bass, type: 'triangle', level: 0.9, i: 0, t: ctx.currentTime + 0.1 },
+    ];
+
+    this.musicTimer = setInterval(() => {
+      for (const tr of tracks) {
+        while (tr.t < ctx.currentTime + 0.4) {
+          const [midi, beats] = tr.notes[tr.i];
+          const dur = beats * beat;
+          if (midi) {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = tr.type;
+            osc.frequency.setValueAtTime(440 * Math.pow(2, (midi - 69) / 12), tr.t);
+            gain.gain.setValueAtTime(0.0001, tr.t);
+            gain.gain.exponentialRampToValueAtTime(tr.level, tr.t + 0.01);
+            gain.gain.exponentialRampToValueAtTime(0.0001, tr.t + dur * 0.92);
+            osc.connect(gain);
+            gain.connect(this.musicGain);
+            osc.start(tr.t);
+            osc.stop(tr.t + dur);
+          }
+          tr.t += dur;
+          tr.i = (tr.i + 1) % tr.notes.length;
+        }
+      }
+    }, 100);
+  }
+
+  stopMusic() {
+    if (this.musicTimer) {
+      clearInterval(this.musicTimer);
+      this.musicTimer = null;
+    }
+    if (this.musicGain) {
+      const gain = this.musicGain;
+      this.musicGain = null;
+      try {
+        gain.gain.setValueAtTime(gain.gain.value, this.ctx.currentTime);
+        gain.gain.linearRampToValueAtTime(0.0001, this.ctx.currentTime + 0.15);
+      } catch {
+        // ignorar
+      }
+      setTimeout(() => gain.disconnect(), 250);
+    }
   }
 }
 
