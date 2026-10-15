@@ -1059,7 +1059,8 @@ function startFallingSequence() {
 
 // Mantener las letras siempre dentro del espacio visual de juego (rebote elástico de caja en modo relax)
 function containLetters() {
-  const maxSpeed = isGyroActive ? 42 : 28;
+  const heightScale = Math.max(1, height / 650);
+  const maxSpeed = isGyroActive ? 42 : Math.round(28 * heightScale);
   const wallBounce = isGyroActive ? 0.78 : 0.5;
   let maxImpactSpeed = 0;
 
@@ -1525,8 +1526,10 @@ function onPointerMove(e) {
     if (dragHistory.length > 5) dragHistory.shift();
 
     // Si se intenta arrastrar la letra hacia arriba desde la zona de lanzamiento,
-    // pierde el agarre a los 50px de subida para que los papirotes cojan velocidad sin subir pegada al ladrillo
-    if (!isGyroActive && (dragStartY - pos.y) >= 50) {
+    // pierde el agarre al superar la distancia de aceleración para que los papirotes cojan velocidad sin subir pegada al ladrillo.
+    // En móviles son 50px, en tablets/iPad escala proporcionalmente (hasta 85px) para dar recorrido al dedo.
+    const releaseDistance = Math.max(50, Math.min(85, height * 0.08));
+    if (!isGyroActive && (dragStartY - pos.y) >= releaseDistance) {
       onPointerUp();
       return;
     }
@@ -1562,15 +1565,18 @@ function onPointerUp() {
   if (draggedBody) {
     let vx = 0;
     let vy = 0;
+    const heightScale = Math.max(1, height / 650);
+    const impulseMult = 1.35 * Math.min(1.6, heightScale);
+
     if (dragHistory.length >= 2) {
       const first = dragHistory[0];
       const last = dragHistory[dragHistory.length - 1];
       const dt = Math.max(last.t - first.t, 16);
-      vx = ((last.x - first.x) / dt) * 16;
-      vy = ((last.y - first.y) / dt) * 16;
+      vx = ((last.x - first.x) / dt) * 16 * impulseMult;
+      vy = ((last.y - first.y) / dt) * 16 * impulseMult;
     }
 
-    const maxSpeed = 24;
+    const maxSpeed = Math.round(24 * heightScale);
     vx = Math.max(-maxSpeed, Math.min(maxSpeed, vx));
     vy = Math.max(-maxSpeed, Math.min(maxSpeed, vy));
 
