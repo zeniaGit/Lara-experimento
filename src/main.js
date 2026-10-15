@@ -256,7 +256,12 @@ function getCurrentLevel() {
   return Math.min(4, Math.max(1, count));
 }
 
+const RANKING_PAINT_KEY = 'lara_paint_ranking';
+
 function getRankingKey(level = getCurrentLevel()) {
+  if (level === 'pintar' || level === 'relax') {
+    return RANKING_PAINT_KEY;
+  }
   return `${RANKING_BASE_KEY}_lvl_${level}`;
 }
 
@@ -857,12 +862,28 @@ function updateRankingTabsUI(selectedLevel) {
   if (!rankingTabs) return;
   const tabButtons = rankingTabs.querySelectorAll('.rank-tab-btn');
   tabButtons.forEach((btn) => {
-    const lvl = parseInt(btn.getAttribute('data-level'), 10);
-    btn.classList.toggle('active', lvl === selectedLevel);
+    const lvlAttr = btn.getAttribute('data-level');
+    const lvl = lvlAttr === 'pintar' ? 'pintar' : parseInt(lvlAttr, 10);
+    btn.classList.toggle('active', String(lvl) === String(selectedLevel));
   });
 }
 
 function openGameOverModal() {
+  if (isGyroActive && relaxChallenge.state === 'won') {
+    if (goTitle) goTitle.textContent = '¡RETO DE PINTAR SUPERADO!';
+    const t1 = relaxChallenge.stepTimes[0].toFixed(1);
+    const t2 = relaxChallenge.stepTimes[1].toFixed(1);
+    const t3 = relaxChallenge.stepTimes[2].toFixed(1);
+    const totalT = (relaxChallenge.stepTimes[0] + relaxChallenge.stepTimes[1] + relaxChallenge.stepTimes[2]).toFixed(1);
+    goSummary.textContent = `${relaxChallenge.score} puntos · Total ${totalT}s (Reto 1: ${t1}s · Reto 2: ${t2}s · Reto 3: ${t3}s)`;
+    formScore.hidden = false;
+    rankingBox.hidden = true;
+    inputPlayerName.value = '';
+    modalGameOver.removeAttribute('hidden');
+    setTimeout(() => inputPlayerName.focus(), 60);
+    return;
+  }
+
   if (game.state !== 'finished') return;
   const lvl = game.level || getCurrentLevel();
   if (goTitle) goTitle.textContent = `¡NIVEL ${lvl} COMPLETADO!`;
@@ -908,7 +929,8 @@ if (rankingTabs) {
   rankingTabs.addEventListener('click', (e) => {
     const btn = e.target.closest('.rank-tab-btn');
     if (!btn) return;
-    const lvl = parseInt(btn.getAttribute('data-level'), 10);
+    const lvlAttr = btn.getAttribute('data-level');
+    const lvl = lvlAttr === 'pintar' ? 'pintar' : parseInt(lvlAttr, 10);
     if (!lvl) return;
     const list = loadRanking(lvl);
     renderRanking(list, null, lvl);
@@ -918,8 +940,25 @@ if (rankingTabs) {
 formScore.addEventListener('submit', (e) => {
   e.preventDefault();
   const name = inputPlayerName.value.trim().toUpperCase();
-  if (!name || game.state !== 'finished') return;
+  if (!name) return;
 
+  if (isGyroActive && relaxChallenge.state === 'won') {
+    const lvl = 'pintar';
+    const totalTime = relaxChallenge.stepTimes[0] + relaxChallenge.stepTimes[1] + relaxChallenge.stepTimes[2];
+    const entry = { id: `s-${Date.now()}`, name, score: relaxChallenge.score, time: totalTime };
+    const list = loadRanking(lvl);
+    list.push(entry);
+    list.sort((a, b) => b.score - a.score || a.time - b.time);
+    const trimmed = list.slice(0, 50);
+    saveRanking(trimmed, lvl);
+
+    formScore.hidden = true;
+    renderRanking(trimmed, entry.id, lvl);
+    rankingBox.hidden = false;
+    return;
+  }
+
+  if (game.state !== 'finished') return;
   const lvl = game.level || getCurrentLevel();
   const entry = { id: `s-${Date.now()}`, name, score: game.score, time: game.elapsed };
   const list = loadRanking(lvl);
@@ -934,7 +973,12 @@ formScore.addEventListener('submit', (e) => {
 });
 
 btnPlayAgain.addEventListener('click', () => {
-  startFallingSequence();
+  closeGameOverModal();
+  if (isGyroActive) {
+    startRelaxChallenge();
+  } else {
+    startFallingSequence();
+  }
 });
 
 // Cancelar: cerrar la pantalla sin inscribir la puntuación en el ranking
@@ -1248,6 +1292,7 @@ function render(currentTime = performance.now()) {
     containLetters();
     if (isGyroActive) {
       updateRelaxMarblesPhysics(dt);
+      updateRelaxChallengeFrame();
     }
     updateSpecialBrick(dt, currentTime);
     processBrickHits();
@@ -1335,6 +1380,10 @@ function render(currentTime = performance.now()) {
     for (let body of letterBodies) {
       if (!body.touchingPoints) body.touchingPoints = {};
 
+      if (body.isColorLocked) {
+        continue;
+      }
+
       for (let pt of pentagonNodes) {
         const isTouching = Matter.Bounds.contains(body.bounds, { x: pt.x, y: pt.y });
         if (isTouching) {
@@ -1369,6 +1418,7 @@ function render(currentTime = performance.now()) {
     }
 
     drawGame(ctx);
+    drawRelaxChallengeHUD(ctx);
 
     // 4. Dibujar Letras Físicas
     for (let body of letterBodies) {
@@ -1542,7 +1592,7 @@ canvas.addEventListener('touchstart', onPointerDown, { passive: false });
 window.addEventListener('touchmove', onPointerMove, { passive: false });
 window.addEventListener('touchend', onPointerUp);
 
-// --- GESTIÓN DE TOGGLE: GIROSCOPIO / MODO RELAX (FÓRMULA DE BOLINES) ---
+// --- GESTIÓN DE TOGGLE: MODO PINTAR (GIROSCOPIO) O ROMPER (BREAKOUT) ---
 const toggleGyro = document.getElementById('toggle-gyro');
 
 let isGyroActive = false;
@@ -1555,9 +1605,29 @@ let isVirtualTilting = false;
 let virtualTiltStart = { x: 0, y: 0 };
 let relaxToastTimeout = null;
 
-function showRelaxToast() {
+// RETO DE PINTAR EN MODO GIROSCOPIO (3 RETOS CONTRARRELOJ)
+let relaxChallenge = {
+  active: false,
+  state: 'idle', // 'idle', 'playing', 'won'
+  step: 1, // 1, 2, 3
+  targetBody: null,
+  targetChar: '',
+  targetColor: null, // { name, color, r, g, b }
+  stepStartTime: 0,
+  stepTimeLimit: 0,
+  stepTimes: [0, 0, 0],
+  lockedBodies: [],
+  score: 0,
+};
+
+function showRelaxToast(title, desc) {
   const popup = document.getElementById('relax-popup');
   if (!popup) return;
+  const titleEl = popup.querySelector('.diff-level');
+  const descEl = popup.querySelector('.diff-sub');
+  if (title && titleEl) titleEl.textContent = title;
+  if (desc && descEl) descEl.textContent = desc;
+
   if (relaxToastTimeout) clearTimeout(relaxToastTimeout);
   popup.hidden = false;
   requestAnimationFrame(() => {
@@ -1573,11 +1643,14 @@ function showRelaxToast() {
 
 function updateFooterHint() {
   const hintEl = document.querySelector('.hint');
+  const tickerText = document.querySelector('.ticker-text');
   if (!hintEl) return;
   if (isGyroActive) {
-    hintEl.innerHTML = '🎳 <strong>Modo Relax:</strong> ¡Inclina la pantalla o desliza para rodar las canicas!';
+    hintEl.innerHTML = '🎨 <strong>Modo Pintar:</strong> ¡Inclina la pantalla con pulso para pintar las 3 letras!';
+    if (tickerText) tickerText.textContent = '✦ RETO PINTAR: INCLINA EL MÓVIL Y LLEVA LA LETRA AL COLOR ✦';
   } else {
     hintEl.textContent = '¡Lanza usando los Papirotes!';
+    if (tickerText) tickerText.textContent = '✦ JUEGA HASTA QUE TU MAMI O PAPI TE DEJE ✦';
   }
 }
 
@@ -1592,6 +1665,178 @@ function wakeAllLetters() {
       y: -6 - Math.random() * 4,
     });
   });
+}
+
+function startRelaxChallenge() {
+  relaxChallenge.active = true;
+  relaxChallenge.state = 'playing';
+  relaxChallenge.step = 1;
+  relaxChallenge.stepTimes = [0, 0, 0];
+  relaxChallenge.lockedBodies = [];
+  relaxChallenge.score = 0;
+
+  letterBodies.forEach(b => {
+    b.isColorLocked = false;
+    b.colorContactTimes = { morado: 0, amarillo: 0, verde: 0, azul: 0, rojo: 0 };
+    b.currentColorRgb = [255, 255, 255];
+  });
+
+  wakeAllLetters();
+  startRelaxStep(1);
+}
+
+function startRelaxStep(step) {
+  relaxChallenge.step = step;
+
+  // Letras disponibles que no hayan sido bloqueadas todavía
+  const candidates = letterBodies.filter(b => !relaxChallenge.lockedBodies.includes(b));
+  const targetBody = candidates.length > 0
+    ? candidates[Math.floor(Math.random() * candidates.length)]
+    : letterBodies[Math.floor(Math.random() * letterBodies.length)];
+
+  // Color objetivo de las 5 esferas del pentágono
+  const targetColor = COLOR_POINTS[Math.floor(Math.random() * COLOR_POINTS.length)];
+
+  relaxChallenge.targetBody = targetBody;
+  relaxChallenge.targetChar = targetBody ? targetBody.char : 'A';
+  relaxChallenge.targetColor = targetColor;
+  relaxChallenge.stepStartTime = performance.now();
+
+  if (step === 1) {
+    relaxChallenge.stepTimeLimit = 0;
+    showRelaxToast(
+      '🎨 RETO 1 DE 3 · PINTAR',
+      `Mueve con cuidado: ¡Pinta la letra "${relaxChallenge.targetChar}" de color ${targetColor.name.toUpperCase()}!`
+    );
+  } else if (step === 2) {
+    relaxChallenge.stepTimeLimit = relaxChallenge.stepTimes[0];
+    showRelaxToast(
+      '⚡ RETO 2 DE 3 · CONTRARRELOJ',
+      `¡Pinta la letra "${relaxChallenge.targetChar}" en ${targetColor.name.toUpperCase()} en menos de ${relaxChallenge.stepTimeLimit.toFixed(1)}s!`
+    );
+  } else if (step === 3) {
+    relaxChallenge.stepTimeLimit = relaxChallenge.stepTimes[1];
+    showRelaxToast(
+      '🔥 RETO 3 DE 3 · ¡MÁXIMA PRECISIÓN!',
+      `¡Pinta la letra "${relaxChallenge.targetChar}" en ${targetColor.name.toUpperCase()} en menos de ${relaxChallenge.stepTimeLimit.toFixed(1)}s!`
+    );
+  }
+}
+
+function updateRelaxChallengeFrame() {
+  if (!relaxChallenge.active || relaxChallenge.state !== 'playing') return;
+  const now = performance.now();
+  const elapsed = (now - relaxChallenge.stepStartTime) / 1000;
+
+  // Opción A: si supera el tiempo en reto 2 o 3, avisar y reiniciar intento de ese reto
+  if (relaxChallenge.stepTimeLimit > 0 && elapsed > relaxChallenge.stepTimeLimit) {
+    soundManager.playWoodGlassHit(0.6);
+    showRelaxToast(
+      '⏰ ¡TIEMPO AGOTADO!',
+      `Tardaste más de ${relaxChallenge.stepTimeLimit.toFixed(1)}s. ¡Inténtalo de nuevo más rápido!`
+    );
+    relaxChallenge.stepStartTime = performance.now();
+    return;
+  }
+
+  // Comprobar si la letra objetivo toca la esfera de color requerida
+  if (relaxChallenge.targetBody && relaxChallenge.targetColor) {
+    const targetPt = pentagonNodes.find(p => p.name === relaxChallenge.targetColor.name);
+    if (targetPt && Matter.Bounds.contains(relaxChallenge.targetBody.bounds, { x: targetPt.x, y: targetPt.y })) {
+      onRelaxStepSuccess(elapsed);
+    }
+  }
+}
+
+function onRelaxStepSuccess(elapsed) {
+  soundManager.playGlitter();
+  const body = relaxChallenge.targetBody;
+  const col = relaxChallenge.targetColor;
+
+  if (body) {
+    body.isColorLocked = true;
+    body.currentColorRgb = [col.r, col.g, col.b];
+    if (!relaxChallenge.lockedBodies.includes(body)) {
+      relaxChallenge.lockedBodies.push(body);
+    }
+  }
+
+  const currentStep = relaxChallenge.step;
+  relaxChallenge.stepTimes[currentStep - 1] = Math.max(0.1, elapsed);
+
+  if (currentStep < 3) {
+    startRelaxStep(currentStep + 1);
+  } else {
+    // Reto de los 3 bolines superado
+    relaxChallenge.state = 'won';
+    const t1 = relaxChallenge.stepTimes[0];
+    const t2 = relaxChallenge.stepTimes[1];
+    const t3 = relaxChallenge.stepTimes[2];
+    const totalTime = t1 + t2 + t3;
+
+    const speedBonus = Math.max(0, Math.round((30 - totalTime) * 60));
+    const step2Bonus = Math.max(0, Math.round((t1 - t2) * 120));
+    const step3Bonus = Math.max(0, Math.round((t2 - t3) * 180));
+    relaxChallenge.score = 1200 + speedBonus + step2Bonus + step3Bonus;
+
+    soundManager.playVictory();
+    setTimeout(openGameOverModal, 1100);
+  }
+}
+
+function drawRelaxChallengeHUD(ctx) {
+  if (!isGyroActive || !relaxChallenge.active) return;
+  const now = performance.now();
+  const elapsed = relaxChallenge.state === 'playing' ? Math.max(0, (now - relaxChallenge.stepStartTime) / 1000) : 0;
+
+  ctx.save();
+  const hudY = Math.max(105, height * 0.13);
+
+  const col = relaxChallenge.targetColor;
+  const colHex = col ? col.color : '#66fcf1';
+  const targetChar = relaxChallenge.targetChar || '';
+  const step = relaxChallenge.step;
+
+  let timeText = `TIEMPO ${elapsed.toFixed(1)}s`;
+  if (relaxChallenge.stepTimeLimit > 0) {
+    const remaining = Math.max(0, relaxChallenge.stepTimeLimit - elapsed);
+    timeText = `TIEMPO ${elapsed.toFixed(1)}s   ·   LÍMITE ${relaxChallenge.stepTimeLimit.toFixed(1)}s (${remaining.toFixed(1)}s rest.)`;
+  }
+
+  // Texto del reto
+  ctx.font = `700 ${width <= 640 ? 11 : 13}px 'Space Grotesk', sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+  ctx.fillText(`RETO ${step}/3: PINTA '${targetChar}' EN `, width / 2 - 42, hudY);
+
+  ctx.fillStyle = colHex;
+  ctx.shadowColor = colHex;
+  ctx.shadowBlur = 8;
+  const colorNameUpper = (col ? col.name : '').toUpperCase();
+  ctx.fillText(colorNameUpper, width / 2 + 55, hudY);
+  ctx.shadowBlur = 0;
+
+  ctx.font = `500 ${width <= 640 ? 10 : 12}px 'Space Grotesk', sans-serif`;
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.65)';
+  ctx.fillText(timeText, width / 2, hudY + 18);
+
+  ctx.restore();
+
+  // Halo sutil pulsante en la letra objetivo
+  if (relaxChallenge.targetBody && relaxChallenge.state === 'playing') {
+    const tb = relaxChallenge.targetBody;
+    const pulse = 0.5 + 0.5 * Math.sin(now * 0.008);
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(tb.position.x, tb.position.y, tb.size * (0.62 + pulse * 0.16), 0, Math.PI * 2);
+    ctx.strokeStyle = colHex;
+    ctx.lineWidth = 2.5;
+    ctx.shadowColor = colHex;
+    ctx.shadowBlur = 12 * pulse;
+    ctx.stroke();
+    ctx.restore();
+  }
 }
 
 // FÓRMULA DE BOLINES: Aceleración continua por fotograma de plano inclinado + rodamiento angular
@@ -1728,8 +1973,9 @@ async function enableGyro() {
     targetTilt = { x: 0, y: 0.9 };
     currentTilt = { x: 0, y: 0.9 };
     toggleGyro.classList.add('active');
-    wakeAllLetters();
-    // Modo relax: quitar ladrillos, suspender juego y cerrar modal de ranking
+    toggleGyro.title = 'Modo actual: Pintar (clic para cambiar a Romper)';
+    toggleGyro.setAttribute('aria-label', 'Modo actual: Pintar');
+    // Modo relax / pintar: quitar ladrillos, suspender juego y cerrar modal de ranking
     bricks = [];
     shards = [];
     pendingBreaks = [];
@@ -1740,8 +1986,8 @@ async function enableGyro() {
     window.addEventListener('devicemotion', handleMotion, true);
     window.addEventListener('mousemove', handleDesktopMouseTilt, true);
 
-    showRelaxToast();
     updateFooterHint();
+    startRelaxChallenge();
   };
 
   // En iOS 13+ solicitamos permiso de orientación
@@ -1761,10 +2007,14 @@ async function enableGyro() {
 function disableGyro() {
   isGyroActive = false;
   isVirtualTilting = false;
+  relaxChallenge.active = false;
+  relaxChallenge.state = 'idle';
   window.removeEventListener('deviceorientation', handleOrientation, true);
   window.removeEventListener('devicemotion', handleMotion, true);
   window.removeEventListener('mousemove', handleDesktopMouseTilt, true);
   toggleGyro.classList.remove('active');
+  toggleGyro.title = 'Modo actual: Romper (clic para cambiar a Pintar)';
+  toggleGyro.setAttribute('aria-label', 'Modo actual: Romper');
   engine.gravity.x = 0;
   engine.gravity.y = 1.25;
   targetTilt = { x: 0, y: 0.9 };
@@ -1773,6 +2023,7 @@ function disableGyro() {
     b.frictionAir = 0.01;
     b.restitution = 0.28;
     b.friction = 0.5;
+    b.isColorLocked = false;
   });
   updateFooterHint();
   startGame(); // Restaura los ladrillos y el juego al salir del modo giroscopio
@@ -1786,6 +2037,25 @@ toggleGyro.addEventListener('click', (e) => {
     enableGyro();
   }
 });
+
+// Modal de Selección Inicial: Pintar o Romper
+const modalSelectMode = document.getElementById('modal-select-mode');
+const btnChoosePaint = document.getElementById('btn-choose-paint');
+const btnChooseBreak = document.getElementById('btn-choose-break');
+
+if (btnChoosePaint) {
+  btnChoosePaint.addEventListener('click', () => {
+    if (modalSelectMode) modalSelectMode.setAttribute('hidden', '');
+    enableGyro();
+  });
+}
+
+if (btnChooseBreak) {
+  btnChooseBreak.addEventListener('click', () => {
+    if (modalSelectMode) modalSelectMode.setAttribute('hidden', '');
+    disableGyro();
+  });
+}
 
 // Renderizado y control dinámico de botones de palabras
 const wordsCluster = document.getElementById('words-cluster');
@@ -1901,7 +2171,11 @@ renderWordButtons();
 
 // Botón Replay
 document.getElementById('btn-replay').addEventListener('click', () => {
-  startFallingSequence();
+  if (isGyroActive) {
+    startRelaxChallenge();
+  } else {
+    startFallingSequence();
+  }
 });
 
 // Resize responsivo

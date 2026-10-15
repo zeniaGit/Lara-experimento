@@ -118,12 +118,37 @@
             <button type="button" class="rank-tab-btn" data-level="2">LVL 2</button>
             <button type="button" class="rank-tab-btn" data-level="3">LVL 3</button>
             <button type="button" class="rank-tab-btn" data-level="4">LVL 4</button>
+            <button type="button" class="rank-tab-btn" data-level="pintar">PINTAR</button>
           </div>
           <p id="ranking-empty" class="ranking-empty" hidden>Sin puntuaciones aún en este nivel</p>
           <ol id="ranking-list" class="ranking-list"></ol>
           <div class="modal-actions">
             <button type="button" id="btn-close-ranking" class="modal-btn secondary">Cerrar</button>
             <button type="button" id="btn-play-again" class="modal-btn primary">Jugar de nuevo</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal de Selección Inicial: Pintar o Romper -->
+    <div id="modal-select-mode" class="modal-backdrop">
+      <div class="modal-box select-mode-box">
+        <div class="modal-header select-mode-header">
+          <h3>¿A QUÉ QUIERES JUGAR?</h3>
+        </div>
+        <p class="select-mode-subtitle">Elige cómo quieres jugar hoy con las letras de Lara</p>
+        <div class="mode-options-grid">
+          <div class="mode-card mode-card-paint">
+            <div class="mode-card-icon">🎨</div>
+            <h4>PINTAR</h4>
+            <p>Inclina la pantalla con pulso y supera 3 retos cambiando de color las letras contrarreloj.</p>
+            <button type="button" id="btn-choose-paint" class="modal-btn primary mode-select-btn">Jugar a Pintar</button>
+          </div>
+          <div class="mode-card mode-card-break">
+            <div class="mode-card-icon">🧱</div>
+            <h4>ROMPER</h4>
+            <p>Lanza las letras hacia arriba usando los papirotes y destruye todos los ladrillos para batir tu récord.</p>
+            <button type="button" id="btn-choose-break" class="modal-btn primary mode-select-btn">Jugar a Romper</button>
           </div>
         </div>
       </div>
