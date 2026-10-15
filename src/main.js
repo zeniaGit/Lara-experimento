@@ -1241,7 +1241,6 @@ function render(currentTime = performance.now()) {
     updateSpecialBrick(dt, currentTime);
     processBrickHits();
     processPendingBreaks();
-    processAcousticVibrations();
     updateTrampolinePhysics();
     updateFloorMesh();
 
@@ -1507,12 +1506,10 @@ canvas.addEventListener('touchstart', onPointerDown, { passive: false });
 window.addEventListener('touchmove', onPointerMove, { passive: false });
 window.addEventListener('touchend', onPointerUp);
 
-// --- GESTIÓN DE TOGGLES: GIROSCOPIO Y MICRÓFONO ---
+// --- GESTIÓN DE TOGGLE: GIROSCOPIO ---
 const toggleGyro = document.getElementById('toggle-gyro');
-const toggleMic = document.getElementById('toggle-mic');
 
 let isGyroActive = false;
-let isMicActive = false;
 
 // 1. LÓGICA TOGGLE GIROSCOPIO: MODO CAJA DE BOLAS (RELAX & FÍSICA VIVA)
 let lastBeta = null;
@@ -1696,89 +1693,6 @@ toggleGyro.addEventListener('click', (e) => {
     enableGyro();
   }
 });
-
-// 2. LÓGICA TOGGLE MICRÓFONO
-let audioCtx = null;
-let analyser = null;
-let audioData = null;
-let micStream = null;
-
-async function enableMic() {
-  try {
-    micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    const source = audioCtx.createMediaStreamSource(micStream);
-    analyser = audioCtx.createAnalyser();
-    analyser.fftSize = 128;
-    source.connect(analyser);
-
-    audioData = new Uint8Array(analyser.frequencyBinCount);
-    isMicActive = true;
-    toggleMic.classList.add('active');
-  } catch (err) {
-    console.error('Error al acceder al micrófono:', err);
-    alert('No se pudo acceder al micrófono. Revisa los permisos.');
-  }
-}
-
-function disableMic() {
-  isMicActive = false;
-  toggleMic.classList.remove('active');
-  if (micStream) {
-    micStream.getTracks().forEach(track => track.stop());
-    micStream = null;
-  }
-  if (audioCtx && audioCtx.state !== 'closed') {
-    audioCtx.close();
-    audioCtx = null;
-  }
-  analyser = null;
-  audioData = null;
-}
-
-toggleMic.addEventListener('click', () => {
-  if (isMicActive) {
-    disableMic();
-  } else {
-    enableMic();
-  }
-});
-
-// Soplido acústico tipo "diente de león"
-function processAcousticVibrations() {
-  if (!isMicActive || !analyser || !audioData) return;
-  analyser.getByteFrequencyData(audioData);
-
-  let sum = 0;
-  for (let i = 0; i < audioData.length; i++) {
-    sum += audioData[i];
-  }
-  const averageVolume = sum / audioData.length;
-
-  if (averageVolume > 14) {
-    const blowIntensity = Math.min((averageVolume - 14) / 75, 1.0);
-
-    letterBodies.forEach((body, idx) => {
-      const liftForce = -0.007 * blowIntensity * (body.mass || 1);
-      const flutterTime = Date.now() * 0.004 + idx * 1.5;
-      const lateralFlutter = Math.sin(flutterTime) * 0.0025 * blowIntensity * (body.mass || 1);
-      const torqueFlutter = Math.cos(flutterTime * 1.2) * 0.0008 * blowIntensity;
-
-      Body.applyForce(body, body.position, {
-        x: lateralFlutter,
-        y: liftForce,
-      });
-
-      body.torque += torqueFlutter;
-    });
-
-    const windWave = blowIntensity * 3.5;
-    for (let i = 0; i < lineNodes.length; i++) {
-      const wave = Math.sin(Date.now() * 0.008 + i * 0.3) * windWave;
-      lineNodes[i].vy += wave * 0.3;
-    }
-  }
-}
 
 // Renderizado y control dinámico de botones de palabras
 const wordsCluster = document.getElementById('words-cluster');
