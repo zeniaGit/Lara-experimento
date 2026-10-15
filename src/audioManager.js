@@ -143,6 +143,76 @@ class SoundManager {
     }, 450);
   }
 
+  // Impacto de bola de cristal en caja de madera (Modo Relax / Caja de bolas):
+  // 1. Resonancia de madera (knock cálido percusivo ~200-260Hz)
+  // 2. Tintineo cristalino brillante (~2400-3200Hz) con armónico de canica
+  playWoodGlassHit(intensity = 0.5) {
+    if (!this.fxEnabled) return;
+    const nowMs = performance.now();
+    if (nowMs - (this.lastWoodHitTime || 0) < 55) return;
+    this.lastWoodHitTime = nowMs;
+
+    const ctx = this.getAudioContext();
+    if (!ctx || ctx.state !== 'running') {
+      if (ctx && ctx.state === 'suspended') ctx.resume().catch(() => {});
+      return;
+    }
+
+    const now = ctx.currentTime;
+    const master = ctx.createGain();
+    const clampedInt = Math.max(0.18, Math.min(1.0, intensity));
+    master.gain.setValueAtTime(0.32 * clampedInt, now);
+    master.gain.exponentialRampToValueAtTime(0.0001, now + 0.16);
+    master.connect(ctx.destination);
+
+    // Componente 1: Cuerpo resonante de madera (knock hueco y percusivo)
+    const woodOsc = ctx.createOscillator();
+    const woodGain = ctx.createGain();
+    const woodFreq = 210 + Math.random() * 50;
+    woodOsc.type = 'sine';
+    woodOsc.frequency.setValueAtTime(woodFreq * 1.5, now);
+    woodOsc.frequency.exponentialRampToValueAtTime(woodFreq, now + 0.022);
+
+    woodGain.gain.setValueAtTime(0.55 * clampedInt, now);
+    woodGain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+
+    woodOsc.connect(woodGain);
+    woodGain.connect(master);
+    woodOsc.start(now);
+    woodOsc.stop(now + 0.09);
+
+    // Componente 2: Clic/tintineo de canica de cristal nítida
+    const glassOsc = ctx.createOscillator();
+    const glassGain = ctx.createGain();
+    const glassFreq = 2600 + Math.random() * 600;
+    glassOsc.type = 'triangle';
+    glassOsc.frequency.setValueAtTime(glassFreq, now);
+
+    glassGain.gain.setValueAtTime(0.0001, now);
+    glassGain.gain.linearRampToValueAtTime(0.32 * clampedInt, now + 0.002);
+    glassGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.045);
+
+    glassOsc.connect(glassGain);
+    glassGain.connect(master);
+    glassOsc.start(now);
+    glassOsc.stop(now + 0.05);
+
+    // Componente 3: Armónico cristalino agudo
+    const clinkOsc = ctx.createOscillator();
+    const clinkGain = ctx.createGain();
+    clinkOsc.type = 'sine';
+    clinkOsc.frequency.setValueAtTime(glassFreq * 1.6, now);
+    clinkGain.gain.setValueAtTime(0.14 * clampedInt, now);
+    clinkGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.035);
+
+    clinkOsc.connect(clinkGain);
+    clinkGain.connect(master);
+    clinkOsc.start(now);
+    clinkOsc.stop(now + 0.04);
+
+    setTimeout(() => master.disconnect(), 180);
+  }
+
   // Cristal roto: crujido de ruido agudo + fragmentos tintineantes inarmónicos
   playGlassBreak() {
     if (!this.fxEnabled) return;

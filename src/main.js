@@ -1013,9 +1013,12 @@ function startFallingSequence() {
   });
 }
 
-// Mantener las letras siempre dentro del espacio visual de juego
+// Mantener las letras siempre dentro del espacio visual de juego (rebote elástico de caja en modo relax)
 function containLetters() {
-  const maxSpeed = 28;
+  const maxSpeed = isGyroActive ? 42 : 28;
+  const wallBounce = isGyroActive ? 0.78 : 0.5;
+  let maxImpactSpeed = 0;
+
   for (const body of letterBodies) {
     if (body === draggedBody) continue;
     let { x, y } = body.position;
@@ -1024,12 +1027,31 @@ function containLetters() {
     let { x: vx, y: vy } = body.velocity;
     const half = body.size * 0.45;
     let moved = false;
+    let hitSpeed = 0;
 
-    if (x < half) { x = half; vx = Math.abs(vx) * 0.5; moved = true; }
-    else if (x > width - half) { x = width - half; vx = -Math.abs(vx) * 0.5; moved = true; }
+    if (x < half) {
+      x = half;
+      hitSpeed = Math.abs(vx);
+      vx = hitSpeed * wallBounce;
+      moved = true;
+    } else if (x > width - half) {
+      x = width - half;
+      hitSpeed = Math.abs(vx);
+      vx = -hitSpeed * wallBounce;
+      moved = true;
+    }
 
-    if (y < half) { y = half; vy = Math.abs(vy) * 0.5; moved = true; }
-    else if (y > height - half) { y = height - half; vy = -Math.abs(vy) * 0.5; moved = true; }
+    if (y < half) {
+      y = half;
+      hitSpeed = Math.max(hitSpeed, Math.abs(vy));
+      vy = hitSpeed * wallBounce;
+      moved = true;
+    } else if (y > height - half) {
+      y = height - half;
+      hitSpeed = Math.max(hitSpeed, Math.abs(vy));
+      vy = -hitSpeed * wallBounce;
+      moved = true;
+    }
 
     const speed = Math.hypot(vx, vy);
     if (speed > maxSpeed) {
@@ -1041,7 +1063,15 @@ function containLetters() {
     if (moved) {
       Body.setPosition(body, { x, y });
       Body.setVelocity(body, { x: vx, y: vy });
+      if (hitSpeed > maxImpactSpeed) {
+        maxImpactSpeed = hitSpeed;
+      }
     }
+  }
+
+  // Sonido de canica de cristal chocando con la caja de madera
+  if (isGyroActive && maxImpactSpeed > 2.0) {
+    soundManager.playWoodGlassHit(maxImpactSpeed / 16);
   }
 }
 
@@ -1082,8 +1112,8 @@ function updateTrampolinePhysics() {
           x: body.velocity.x * 0.9,
           y: -Math.min(body.velocity.y * 0.55, 12),
         });
-      } else if (!isGyroActive || (engine.gravity.y > 0.35 && !isTableFlatMode)) {
-        // En reposo estándar: solo fijar si el giroscopio no está activo o la gravedad apunta firmemente hacia abajo
+      } else if (!isGyroActive) {
+        // En reposo estándar: solo fijar si el giroscopio no está activo
         if (body.velocity.y >= 0) {
           Body.setPosition(body, {
             x: body.position.x,
@@ -1478,16 +1508,20 @@ const toggleMic = document.getElementById('toggle-mic');
 let isGyroActive = false;
 let isMicActive = false;
 
-// 1. LÓGICA TOGGLE GIROSCOPIO: MODO MESA (GOTAS DERRAMADAS) VS MODO LEVANTADO
-let isTableFlatMode = false;
+// 1. LÓGICA TOGGLE GIROSCOPIO: MODO CAJA DE BOLAS (RELAX & FÍSICA VIVA)
+let lastBeta = null;
+let lastGamma = null;
+let lastOrientTime = 0;
 
 function wakeAllLetters() {
   letterBodies.forEach(b => {
     Matter.Sleeping.set(b, false);
-    // Impulso inicial mínimo para desencadenar movimiento inmediato
+    b.frictionAir = 0.0012; // Mínima resistencia: se mueven ágiles como bolas libres
+    b.restitution = 0.82;   // Rebote elástico vivo como canicas de cristal
+    b.friction = 0.12;      // Rodamiento libre
     Body.setVelocity(b, {
-      x: b.velocity.x + (Math.random() - 0.5) * 0.4,
-      y: b.velocity.y - 0.3,
+      x: b.velocity.x + (Math.random() - 0.5) * 0.8,
+      y: b.velocity.y - 0.5,
     });
   });
 }
@@ -1498,45 +1532,90 @@ function handleOrientation(e) {
     const beta = e.beta;   // inclinación adelante/atrás (-180 a 180)
     const gamma = e.gamma; // inclinación lateral (-90 a 90)
 
-    // Detectar si el móvil está plano sobre la mesa (beta cerca de 0°, +- 18°)
-    const isFlat = Math.abs(beta) < 18 && Math.abs(gamma) < 70;
+    // Inclinación suave: van cogiendo aceleración continua en la dirección de la caja
+    const gx = Math.sin((gamma * Math.PI) / 180) * 3.6;
+    const gy = Math.sin(((beta - 12) * Math.PI) / 180) * 3.4;
 
-    if (isFlat) {
-      // MODO MESA: Las letras se comportan como gotas deslizándose por plano horizontal
-      isTableFlatMode = true;
+    engine.gravity.x = Math.max(-3.5, Math.min(3.5, gx));
+    engine.gravity.y = Math.max(-3.5, Math.min(3.5, gy));
 
-      const spillX = Math.sin((gamma * Math.PI) / 180) * 2.5;
-      const spillY = Math.sin((beta * Math.PI) / 180) * 2.5;
+    // Propiedades de canicas de cristal en caja de madera: mínimo rozamiento y rebote elástico
+    letterBodies.forEach(b => {
+      Matter.Sleeping.set(b, false);
+      b.frictionAir = 0.0012;
+      b.restitution = 0.82;
+      b.friction = 0.12;
+    });
 
-      engine.gravity.x = Math.max(-2.5, Math.min(2.5, spillX));
-      engine.gravity.y = Math.max(-2.5, Math.min(2.5, spillY));
-
-      letterBodies.forEach(b => {
-        Matter.Sleeping.set(b, false);
-        b.frictionAir = 0.012;
-      });
-    } else {
-      // MODO LEVANTADO: Inclinación gravitacional normal o invertida
-      isTableFlatMode = false;
-
-      const gx = Math.sin((gamma * Math.PI) / 180) * 2.2;
-      const betaNorm = (beta - 18) / 45;
-      const gy = Math.max(-2.5, Math.min(2.5, betaNorm * 1.6));
-
-      engine.gravity.x = Math.max(-2.2, Math.min(2.2, gx));
-      engine.gravity.y = gy;
-
-      letterBodies.forEach(b => {
-        Matter.Sleeping.set(b, false);
-        b.frictionAir = 0.01;
-      });
+    // Detección de sacudida rápida por giro angular
+    const now = performance.now();
+    if (lastOrientTime > 0) {
+      const dt = Math.max((now - lastOrientTime) / 1000, 0.008);
+      const speedGamma = (gamma - lastGamma) / dt;
+      const speedBeta = (beta - lastBeta) / dt;
+      const angularSpeed = Math.hypot(speedGamma, speedBeta);
+      if (angularSpeed > 160) {
+        const impulse = Math.min((angularSpeed - 160) * 0.018, 18);
+        const dirX = speedGamma / angularSpeed;
+        const dirY = speedBeta / angularSpeed;
+        letterBodies.forEach(b => {
+          Matter.Sleeping.set(b, false);
+          Body.setVelocity(b, {
+            x: b.velocity.x + dirX * impulse * (0.8 + Math.random() * 0.4),
+            y: b.velocity.y + dirY * impulse * (0.8 + Math.random() * 0.4),
+          });
+        });
+      }
     }
+    lastBeta = beta;
+    lastGamma = gamma;
+    lastOrientTime = now;
   }
 }
+
+// Acelerómetro: respuesta inmediata cuando se agita el móvil
+function handleMotion(e) {
+  if (!isGyroActive) return;
+  const acc = e.acceleration || e.accelerationIncludingGravity;
+  if (!acc) return;
+  const ax = acc.x ?? 0;
+  const ay = acc.y ?? 0;
+  const mag = Math.hypot(ax, ay);
+  if (mag > 4.2) {
+    // Al agitar, se mueven inmediatamente como bolas a la velocidad de la sacudida
+    const shakePower = Math.min((mag - 4.2) * 0.72, 18);
+    const dirX = -ax / (mag || 1);
+    const dirY = ay / (mag || 1);
+    letterBodies.forEach(b => {
+      Matter.Sleeping.set(b, false);
+      Body.setVelocity(b, {
+        x: b.velocity.x + dirX * shakePower * (0.85 + Math.random() * 0.3),
+        y: b.velocity.y + dirY * shakePower * (0.85 + Math.random() * 0.3),
+      });
+    });
+  }
+}
+
+// Sonido al chocar las canicas entre sí en modo relax
+Matter.Events.on(engine, 'collisionStart', (event) => {
+  if (!isGyroActive) return;
+  for (const pair of event.pairs) {
+    const a = pair.bodyA;
+    const b = pair.bodyB;
+    if (a && b && a.char && b.char) {
+      const relSpeed = Math.hypot(a.velocity.x - b.velocity.x, a.velocity.y - b.velocity.y);
+      if (relSpeed > 2.0) {
+        soundManager.playWoodGlassHit(relSpeed / 16);
+        break;
+      }
+    }
+  }
+});
 
 async function enableGyro() {
   const onGranted = () => {
     window.addEventListener('deviceorientation', handleOrientation);
+    window.addEventListener('devicemotion', handleMotion);
     isGyroActive = true;
     toggleGyro.classList.add('active');
     wakeAllLetters();
@@ -1552,6 +1631,9 @@ async function enableGyro() {
     try {
       const permissionState = await DeviceOrientationEvent.requestPermission();
       if (permissionState === 'granted') {
+        if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+          try { await DeviceMotionEvent.requestPermission(); } catch (_) {}
+        }
         onGranted();
       }
     } catch (e) {
@@ -1564,9 +1646,16 @@ async function enableGyro() {
 
 function disableGyro() {
   isGyroActive = false;
+  window.removeEventListener('deviceorientation', handleOrientation);
+  window.removeEventListener('devicemotion', handleMotion);
   toggleGyro.classList.remove('active');
   engine.gravity.x = 0;
   engine.gravity.y = 1.25;
+  letterBodies.forEach(b => {
+    b.frictionAir = 0.01;
+    b.restitution = 0.28;
+    b.friction = 0.5;
+  });
   startGame(); // Restaura los ladrillos y el juego al salir del modo giroscopio
 }
 
