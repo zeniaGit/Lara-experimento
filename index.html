@@ -48,6 +48,7 @@
           <span class="ticker-text">✦ Juega hasta que tu mami o papi te deje ✦</span>
         </div>
       </div>
+      <p id="visit-counter" class="visit-counter" hidden aria-live="polite">👀 Visitas: <span id="visit-count">—</span></p>
       <p class="hint">¡Lanza usando los Papirotes!</p>
     </footer>
 
@@ -150,8 +151,30 @@
             <p>Lanza las letras hacia arriba usando los papirotes y destruye todos los ladrillos para batir tu récord.</p>
             <button type="button" id="btn-choose-break" class="modal-btn primary mode-select-btn">Jugar a Romper</button>
           </div>
+          <div class="mode-card mode-card-math">
+            <div class="mode-card-icon">➗</div>
+            <h4>CUÁNTO SABES DE MATES</h4>
+            <p>Resuelve cuentas y pequeños retos de 2.º de Primaria. ¡Intenta superar tu propia marca!</p>
+            <button type="button" id="btn-choose-math" class="modal-btn primary mode-select-btn">Jugar a Mates</button>
+          </div>
         </div>
       </div>
+    </div>
+
+    <div id="modal-math-game" class="modal-backdrop" hidden>
+      <section class="modal-box math-game-box" role="dialog" aria-modal="true" aria-labelledby="math-title">
+        <div class="modal-header"><h3 id="math-title">¿CUÁNTO SABES DE MATES?</h3></div>
+        <p id="math-progress" class="math-progress"></p>
+        <p id="math-record" class="math-record"></p>
+        <p id="math-question" class="math-question"></p>
+        <div id="math-answers" class="math-answers"></div>
+        <p id="math-feedback" class="math-feedback" aria-live="polite"></p>
+        <div class="modal-actions math-actions">
+          <button type="button" id="btn-math-back" class="modal-btn secondary">Volver</button>
+          <button type="button" id="btn-math-next" class="modal-btn primary" hidden>Siguiente</button>
+          <button type="button" id="btn-math-finish" class="modal-btn primary" hidden>Volver a jugar</button>
+        </div>
+      </section>
     </div>
   </div>
   <script type="module" src="./src/main.js"></script>

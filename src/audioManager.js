@@ -10,6 +10,9 @@ class SoundManager {
     this.sparkleFrequencies = [2093, 2637, 3136, 3951, 4700, 5274]; // Escala cristalina C7-E8
     this.isUnlocked = false;
     this.fxEnabled = true;
+    this.mathClockTimer = null;
+    this.mathClockTicks = 0;
+    this.mathClockPhraseIndex = 0;
 
     this.setupUnlockListeners();
   }
@@ -60,6 +63,115 @@ class SoundManager {
     } catch {
       this.noiseBuffer = null;
     }
+  }
+
+  startMathClock() {
+    this.stopMathClock();
+    if (!this.fxEnabled) return;
+    const ctx = this.getAudioContext();
+    if (!ctx) return;
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+    const tick = () => {
+      if (!this.fxEnabled) return;
+      const audio = this.getAudioContext();
+      if (!audio || audio.state !== 'running') return;
+      const now = audio.currentTime;
+      const osc = audio.createOscillator();
+      const gain = audio.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(this.mathClockTicks % 2 === 0 ? 1250 : 980, now);
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.exponentialRampToValueAtTime(0.055, now + 0.004);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.045);
+      osc.connect(gain);
+      gain.connect(audio.destination);
+      osc.start(now);
+      osc.stop(now + 0.05);
+
+      this.mathClockTicks += 1;
+      if (this.mathClockTicks % 16 === 0) {
+        // Reclamo de ave breve y una campanada suave, aproximadamente cada 16 pulsos.
+        [1046.5, 783.99].forEach((frequency, index) => {
+          const start = now + index * 0.2;
+          const bird = audio.createOscillator();
+          const birdGain = audio.createGain();
+          bird.type = 'triangle';
+          bird.frequency.setValueAtTime(frequency * 1.25, start);
+          bird.frequency.exponentialRampToValueAtTime(frequency, start + 0.09);
+          birdGain.gain.setValueAtTime(0.0001, start);
+          birdGain.gain.exponentialRampToValueAtTime(0.045, start + 0.01);
+          birdGain.gain.exponentialRampToValueAtTime(0.0001, start + 0.16);
+          bird.connect(birdGain);
+          birdGain.connect(audio.destination);
+          bird.start(start);
+          bird.stop(start + 0.17);
+        });
+
+        const bell = audio.createOscillator();
+        const bellGain = audio.createGain();
+        const bellStart = now + 0.43;
+        bell.type = 'sine';
+        bell.frequency.setValueAtTime(1567.98, bellStart);
+        bellGain.gain.setValueAtTime(0.0001, bellStart);
+        bellGain.gain.exponentialRampToValueAtTime(0.055, bellStart + 0.015);
+        bellGain.gain.exponentialRampToValueAtTime(0.0001, bellStart + 0.72);
+        bell.connect(bellGain);
+        bellGain.connect(audio.destination);
+        bell.start(bellStart);
+        bell.stop(bellStart + 0.74);
+      }
+
+      if ((this.mathClockTicks - 1) % 8 === 0) {
+        // Cuatro frases originales en Sol mayor que forman una melodía en orden.
+        const phrases = [
+          { notes: [392, 493.88, 587.33, 739.99, 587.33, 493.88, 440, 392], bass: 196 },
+          { notes: [587.33, 659.25, 739.99, 587.33, 493.88, 587.33, 659.25, 739.99], bass: 146.83 },
+          { notes: [659.25, 783.99, 987.77, 880, 783.99, 659.25, 587.33, 493.88], bass: 164.81 },
+          { notes: [523.25, 659.25, 783.99, 987.77, 1174.66, 987.77, 783.99, 587.33], bass: 130.81 },
+        ];
+        const phrase = phrases[this.mathClockPhraseIndex % phrases.length];
+        this.mathClockPhraseIndex += 1;
+        const { notes } = phrase;
+        const beats = [0, 0.14, 0.28, 0.42, 0.68, 0.82, 0.96, 1.1];
+        notes.forEach((frequency, index) => {
+          const start = now + beats[index];
+          const note = audio.createOscillator();
+          const bell = audio.createGain();
+          note.type = 'square';
+          note.frequency.setValueAtTime(frequency, start);
+          bell.gain.setValueAtTime(0.0001, start);
+          bell.gain.exponentialRampToValueAtTime(0.032, start + 0.008);
+          bell.gain.exponentialRampToValueAtTime(0.0001, start + 0.13);
+          note.connect(bell);
+          bell.connect(audio.destination);
+          note.start(start);
+          note.stop(start + 0.14);
+        });
+
+        // Bajo breve en los primeros pulsos para reforzar el aire de arcade.
+        [phrase.bass, phrase.bass * 1.5, phrase.bass * 1.25, phrase.bass].forEach((frequency, index) => {
+          const start = now + index * 0.28;
+          const bass = audio.createOscillator();
+          const bassGain = audio.createGain();
+          bass.type = 'triangle';
+          bass.frequency.setValueAtTime(frequency, start);
+          bassGain.gain.setValueAtTime(0.0001, start);
+          bassGain.gain.exponentialRampToValueAtTime(0.045, start + 0.01);
+          bassGain.gain.exponentialRampToValueAtTime(0.0001, start + 0.19);
+          bass.connect(bassGain);
+          bassGain.connect(audio.destination);
+          bass.start(start);
+          bass.stop(start + 0.2);
+        });
+      }
+    };
+    tick();
+    this.mathClockTimer = window.setInterval(tick, 1000);
+  }
+
+  stopMathClock() {
+    if (this.mathClockTimer !== null) window.clearInterval(this.mathClockTimer);
+    this.mathClockTimer = null;
   }
 
   playGlitter() {

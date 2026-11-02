@@ -2,6 +2,8 @@ import Matter from 'matter-js';
 import { soundManager } from './audioManager.js';
 import labubuUrl from './assets/labubu.png';
 
+const visitCounterCode = import.meta.env.VITE_GOATCOUNTER_CODE || '';
+
 const labubuImg = new Image();
 labubuImg.src = labubuUrl;
 let isLabubuLoaded = false;
@@ -2063,8 +2065,180 @@ if (btnChooseBreak) {
   });
 }
 
+// Reto de cálculo mental: 10 preguntas con cuatro opciones cada una.
+const mathModal = document.getElementById('modal-math-game');
+const mathProgress = document.getElementById('math-progress');
+const mathRecord = document.getElementById('math-record');
+const mathQuestion = document.getElementById('math-question');
+const mathAnswers = document.getElementById('math-answers');
+const mathFeedback = document.getElementById('math-feedback');
+const mathNext = document.getElementById('btn-math-next');
+const mathFinish = document.getElementById('btn-math-finish');
+let mathRound = 0;
+let mathScore = 0;
+let mathCurrentAnswer = 0;
+let mathStartedAt = 0;
+let mathBest = loadMathBest();
+const MATH_BEST_KEY = 'lara_math_best_v1';
+
+function loadMathBest() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('lara_math_best_v1'));
+    return saved && Number.isFinite(saved.score) && Number.isFinite(saved.time) ? saved : null;
+  } catch { return null; }
+}
+
+function renderMathBest() {
+  mathRecord.textContent = mathBest
+    ? `Tu mejor marca: ${mathBest.score}/10 · ${mathBest.time.toFixed(1)} s`
+    : 'Aún no tienes marca. ¡Esta partida será tu primera aventura!';
+}
+
+function makeMathQuestion() {
+  // Contenidos habituales de 2.º de Primaria: sumas, restas, series y problemas sencillos.
+  const kind = Math.floor(Math.random() * 4);
+  if (kind === 2) {
+    const start = 2 + Math.floor(Math.random() * 8);
+    const step = 2 + Math.floor(Math.random() * 4);
+    return { text: `¿Qué número sigue? ${start}, ${start + step}, ${start + step * 2}, ___`, answer: start + step * 3 };
+  }
+  if (kind === 3) {
+    const apples = 8 + Math.floor(Math.random() * 13);
+    const given = 2 + Math.floor(Math.random() * Math.min(6, apples - 1));
+    return { text: `Hay ${apples} manzanas y regalas ${given}. ¿Cuántas quedan?`, answer: apples - given };
+  }
+  const operations = ['+', '−'];
+  const op = operations[Math.floor(Math.random() * operations.length)];
+  let a = 1 + Math.floor(Math.random() * 50);
+  let b = 1 + Math.floor(Math.random() * 50);
+  if (Math.random() < 0.5) { a = 10 + Math.floor(Math.random() * 80); b = 1 + Math.floor(Math.random() * 9); }
+  if (op === '−' && b > a) [a, b] = [b, a];
+  const answer = op === '+' ? a + b : op === '−' ? a - b : a * b;
+  return { text: `${a} ${op} ${b} = ?`, answer };
+}
+
+function showMathQuestion() {
+  soundManager.startMathClock();
+  mathRound += 1;
+  const question = makeMathQuestion();
+  mathCurrentAnswer = question.answer;
+  mathProgress.textContent = `Pregunta ${mathRound} de 10 · Aciertos: ${mathScore}`;
+  mathQuestion.textContent = question.text;
+  mathFeedback.textContent = '';
+  mathAnswers.replaceChildren();
+  const choices = new Set([question.answer]);
+  while (choices.size < 4) choices.add(Math.max(0, question.answer + Math.floor(Math.random() * 11) - 5));
+  [...choices].sort(() => Math.random() - 0.5).forEach((value) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'math-answer';
+    button.textContent = value;
+    button.addEventListener('click', () => {
+      soundManager.stopMathClock();
+      mathAnswers.querySelectorAll('button').forEach((item) => { item.disabled = true; });
+      if (value === mathCurrentAnswer) {
+        mathScore += 1;
+        button.classList.add('correct');
+        mathFeedback.textContent = '¡Correcto!';
+      } else {
+        button.classList.add('incorrect');
+        mathFeedback.textContent = `Casi: la respuesta era ${mathCurrentAnswer}.`;
+        mathAnswers.querySelectorAll('button').forEach((item) => {
+          if (Number(item.textContent) === mathCurrentAnswer) item.classList.add('correct');
+        });
+      }
+      mathProgress.textContent = `Pregunta ${mathRound} de 10 · Aciertos: ${mathScore}`;
+      mathNext.hidden = mathRound >= 10;
+      mathFinish.hidden = mathRound < 10;
+      if (mathRound >= 10) {
+        const elapsed = (performance.now() - mathStartedAt) / 1000;
+        const beatScore = !mathBest || mathScore > mathBest.score;
+        const beatTime = mathBest && mathScore >= mathBest.score && elapsed < mathBest.time;
+        const newRecord = beatScore || beatTime;
+        if (newRecord) {
+          mathBest = beatScore
+            ? { score: mathScore, time: elapsed }
+            : { score: mathBest.score, time: elapsed };
+          try { localStorage.setItem(MATH_BEST_KEY, JSON.stringify(mathBest)); } catch { /* El juego sigue aunque el almacenamiento esté desactivado. */ }
+          renderMathBest();
+        }
+        mathProgress.textContent = 'Reto terminado';
+        mathQuestion.textContent = `¡Has acertado ${mathScore} de 10!`;
+        mathFeedback.textContent = newRecord
+          ? '🏅 ¡Has superado tu propia marca! ¡Medalla conseguida!'
+          : mathScore === 10 ? '¡Perfecto! ¡Diez respuestas correctas!' : '¡Buen trabajo! Cada partida te ayuda a aprender.';
+        mathRecord.textContent = `Tiempo: ${elapsed.toFixed(1)} s · ${mathBest.score}/10 · mejor tiempo ${mathBest.time.toFixed(1)} s`;
+        mathAnswers.replaceChildren();
+      }
+    });
+    mathAnswers.appendChild(button);
+  });
+  mathNext.hidden = true;
+  mathFinish.hidden = true;
+}
+
+document.getElementById('btn-choose-math')?.addEventListener('click', () => {
+  modalSelectMode?.setAttribute('hidden', '');
+  mathModal?.removeAttribute('hidden');
+  mathRound = 0;
+  mathScore = 0;
+  mathStartedAt = performance.now();
+  renderMathBest();
+  showMathQuestion();
+});
+mathNext?.addEventListener('click', showMathQuestion);
+mathFinish?.addEventListener('click', () => {
+  mathRound = 0;
+  mathScore = 0;
+  showMathQuestion();
+});
+document.getElementById('btn-math-back')?.addEventListener('click', () => {
+  soundManager.stopMathClock();
+  mathModal?.setAttribute('hidden', '');
+  modalSelectMode?.removeAttribute('hidden');
+});
+
 // Renderizado y control dinámico de botones de palabras
 const wordsCluster = document.getElementById('words-cluster');
+
+function initVisitCounter() {
+  const code = visitCounterCode.trim();
+  const counter = document.getElementById('visit-counter');
+  const countLabel = document.getElementById('visit-count');
+  if (!counter || !countLabel || !code || !/^[a-z0-9-]+$/i.test(code)) return;
+
+  const endpoint = `https://${code}.goatcounter.com`;
+  counter.hidden = false;
+  countLabel.textContent = 'Cargando…';
+
+  const refreshCount = async () => {
+    try {
+      const response = await fetch(`${endpoint}/counter/TOTAL.json`, { credentials: 'omit' });
+      if (!response.ok) throw new Error(`GoatCounter respondió ${response.status}`);
+      const data = await response.json();
+      if (typeof data.count === 'string' || typeof data.count === 'number') {
+        countLabel.textContent = data.count;
+      }
+    } catch (error) {
+      countLabel.textContent = 'No disponible';
+      console.warn('No se pudo cargar el total de visitas:', error);
+    }
+  };
+
+  const script = document.createElement('script');
+  script.src = 'https://gc.zgo.at/count.js';
+  script.async = true;
+  script.dataset.goatcounter = `${endpoint}/count`;
+  script.addEventListener('load', () => {
+    // Deja que el servicio registre esta visita antes de consultar el total.
+    window.setTimeout(refreshCount, 1200);
+    window.setInterval(refreshCount, 5 * 60 * 1000);
+  }, { once: true });
+  script.addEventListener('error', () => {
+    countLabel.textContent = 'No disponible';
+  }, { once: true });
+  document.head.appendChild(script);
+}
 
 function renderWordButtons() {
   if (!wordsCluster) return;
@@ -2174,6 +2348,7 @@ if (formAddWord) {
 
 // Inicializar botones en cabecera
 renderWordButtons();
+initVisitCounter();
 
 // Botón Replay
 document.getElementById('btn-replay').addEventListener('click', () => {
