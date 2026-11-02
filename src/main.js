@@ -1,8 +1,7 @@
 import Matter from 'matter-js';
 import { soundManager } from './audioManager.js';
+import { inject as injectVercelAnalytics } from '@vercel/analytics';
 import labubuUrl from './assets/labubu.png';
-
-const visitCounterCode = import.meta.env.VITE_GOATCOUNTER_CODE || '';
 
 const labubuImg = new Image();
 labubuImg.src = labubuUrl;
@@ -2201,45 +2200,6 @@ document.getElementById('btn-math-back')?.addEventListener('click', () => {
 // Renderizado y control dinámico de botones de palabras
 const wordsCluster = document.getElementById('words-cluster');
 
-function initVisitCounter() {
-  const code = visitCounterCode.trim();
-  const counter = document.getElementById('visit-counter');
-  const countLabel = document.getElementById('visit-count');
-  if (!counter || !countLabel || !code || !/^[a-z0-9-]+$/i.test(code)) return;
-
-  const endpoint = `https://${code}.goatcounter.com`;
-  counter.hidden = false;
-  countLabel.textContent = 'Cargando…';
-
-  const refreshCount = async () => {
-    try {
-      const response = await fetch(`${endpoint}/counter/TOTAL.json`, { credentials: 'omit' });
-      if (!response.ok) throw new Error(`GoatCounter respondió ${response.status}`);
-      const data = await response.json();
-      if (typeof data.count === 'string' || typeof data.count === 'number') {
-        countLabel.textContent = data.count;
-      }
-    } catch (error) {
-      countLabel.textContent = 'No disponible';
-      console.warn('No se pudo cargar el total de visitas:', error);
-    }
-  };
-
-  const script = document.createElement('script');
-  script.src = 'https://gc.zgo.at/count.js';
-  script.async = true;
-  script.dataset.goatcounter = `${endpoint}/count`;
-  script.addEventListener('load', () => {
-    // Deja que el servicio registre esta visita antes de consultar el total.
-    window.setTimeout(refreshCount, 1200);
-    window.setInterval(refreshCount, 5 * 60 * 1000);
-  }, { once: true });
-  script.addEventListener('error', () => {
-    countLabel.textContent = 'No disponible';
-  }, { once: true });
-  document.head.appendChild(script);
-}
-
 function renderWordButtons() {
   if (!wordsCluster) return;
   wordsCluster.innerHTML = '';
@@ -2348,7 +2308,7 @@ if (formAddWord) {
 
 // Inicializar botones en cabecera
 renderWordButtons();
-initVisitCounter();
+if (import.meta.env.PROD) injectVercelAnalytics({ mode: 'production' });
 
 // Botón Replay
 document.getElementById('btn-replay').addEventListener('click', () => {
