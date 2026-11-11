@@ -156,8 +156,41 @@
             <p>Resuelve cuentas y pequeños retos de 2.º de Primaria. ¡Intenta superar tu propia marca!</p>
             <button type="button" id="btn-choose-math" class="modal-btn primary mode-select-btn">Jugar a Mates</button>
           </div>
+          <div class="mode-card mode-card-rankings">
+            <div class="mode-card-icon">🏆</div>
+            <h4>RANKINGS</h4>
+            <p>Consulta las mejores puntuaciones de Pintar, Romper y Mates.</p>
+            <button type="button" id="btn-open-rankings" class="modal-btn primary mode-select-btn">Ver Rankings</button>
+          </div>
         </div>
       </div>
+    </div>
+
+    <!-- Modal de Rankings desde el inicio -->
+    <div id="modal-rankings" class="modal-backdrop" hidden>
+      <section class="modal-box rankings-modal-box" role="dialog" aria-modal="true" aria-labelledby="home-rankings-title">
+        <div class="modal-header">
+          <h3 id="home-rankings-title">🏆 RANKINGS</h3>
+        </div>
+        <div id="home-ranking-tabs" class="ranking-tabs" role="tablist" aria-label="Rankings por juego">
+          <button type="button" role="tab" id="home-tab-pintar" class="rank-tab-btn" data-game="pintar" aria-selected="true" tabindex="0">🎨 PINTAR</button>
+          <button type="button" role="tab" id="home-tab-romper" class="rank-tab-btn" data-game="romper" aria-selected="false" tabindex="-1">🧱 ROMPER</button>
+          <button type="button" role="tab" id="home-tab-mates" class="rank-tab-btn" data-game="mates" aria-selected="false" tabindex="-1">➗ MATES</button>
+        </div>
+        <div id="home-rankings-panel" class="ranking-panel" role="tabpanel" aria-labelledby="home-tab-pintar" tabindex="0">
+          <div id="home-romper-levels" class="ranking-subtabs" role="group" aria-label="Niveles de Romper" hidden>
+            <button type="button" class="rank-subtab-btn" data-level="1" aria-pressed="true">LVL 1</button>
+            <button type="button" class="rank-subtab-btn" data-level="2" aria-pressed="false">LVL 2</button>
+            <button type="button" class="rank-subtab-btn" data-level="3" aria-pressed="false">LVL 3</button>
+            <button type="button" class="rank-subtab-btn" data-level="4" aria-pressed="false">LVL 4</button>
+          </div>
+          <p id="home-ranking-empty" class="ranking-empty" hidden>Sin puntuaciones aún en este modo</p>
+          <ol id="home-ranking-list" class="ranking-list"></ol>
+        </div>
+        <div class="modal-actions">
+          <button type="button" id="btn-rankings-back" class="modal-btn secondary">Volver</button>
+        </div>
+      </section>
     </div>
 
     <div id="modal-math-game" class="modal-backdrop" hidden>
@@ -168,6 +201,26 @@
         <p id="math-question" class="math-question"></p>
         <div id="math-answers" class="math-answers"></div>
         <p id="math-feedback" class="math-feedback" aria-live="polite"></p>
+        <form id="form-math-score" class="modal-form" hidden>
+          <input
+            type="text"
+            id="input-math-player-name"
+            class="modal-input"
+            placeholder="Tu nombre..."
+            maxlength="10"
+            autocomplete="off"
+            aria-label="Tu nombre"
+            required
+          />
+          <div class="modal-actions">
+            <button type="button" id="btn-math-skip-score" class="modal-btn secondary">Cancelar</button>
+            <button type="submit" class="modal-btn primary">Guardar</button>
+          </div>
+        </form>
+        <div id="math-ranking-box" hidden>
+          <p id="math-ranking-empty" class="ranking-empty" hidden>Sin puntuaciones aún en Mates</p>
+          <ol id="math-ranking-list" class="ranking-list"></ol>
+        </div>
         <div class="modal-actions math-actions">
           <button type="button" id="btn-math-back" class="modal-btn secondary">Volver</button>
           <button type="button" id="btn-math-next" class="modal-btn primary" hidden>Siguiente</button>

@@ -509,7 +509,10 @@ html, body {
 }
 
 #form-score[hidden],
-#ranking-box[hidden] {
+#ranking-box[hidden],
+#form-math-score[hidden],
+#math-ranking-box[hidden],
+#home-romper-levels[hidden] {
   display: none;
 }
 
@@ -614,20 +617,28 @@ html, body {
   justify-content: center;
   gap: 6px;
   margin-bottom: 12px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.ranking-tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .rank-tab-btn {
+  position: relative;
+  flex: none;
   appearance: none;
   border: 1px solid rgba(255, 255, 255, 0.16);
   background: rgba(255, 255, 255, 0.05);
-  color: rgba(255, 255, 255, 0.55);
+  color: rgba(255, 255, 255, 0.65);
   font-family: var(--font-display);
   font-size: 0.68rem;
   letter-spacing: 0.12em;
-  padding: 4px 10px;
+  padding: 6px 10px;
   border-radius: 14px;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
 }
 
 .rank-tab-btn:hover {
@@ -635,11 +646,57 @@ html, body {
   color: #fff;
 }
 
-.rank-tab-btn.active {
+.rank-tab-btn.active,
+.rank-tab-btn[aria-selected="true"] {
   border-color: var(--accent);
   background: rgba(102, 252, 241, 0.15);
   color: var(--accent);
   box-shadow: 0 0 8px rgba(102, 252, 241, 0.2);
+}
+
+.rank-tab-btn[aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  inset: auto 10px 0;
+  border-block-end: 2px solid var(--accent);
+}
+
+.ranking-subtabs {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.rank-subtab-btn {
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.6);
+  font-family: var(--font-display);
+  font-size: 0.64rem;
+  letter-spacing: 0.1em;
+  padding: 4px 9px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
+}
+
+.rank-subtab-btn:hover {
+  border-color: rgba(255, 255, 255, 0.35);
+  color: #fff;
+}
+
+.rank-subtab-btn[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: rgba(102, 252, 241, 0.14);
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.rankings-modal-box {
+  max-width: 400px;
 }
 
 .ranking-empty {
@@ -649,7 +706,7 @@ html, body {
   padding: 16px 0;
 }
 
-/* Modal Selector Inicial: Pintar o Romper */
+/* Modal Selector Inicial: Grid 2x2 */
 .select-mode-box {
   max-width: 500px;
   max-height: calc(100vh - 32px);
@@ -683,8 +740,6 @@ html, body {
   gap: 14px;
 }
 
-.mode-card-math { grid-column: 1 / -1; }
-
 .math-game-box { text-align: center; }
 .math-game-box .modal-header { justify-content: center; }
 .math-progress, .math-feedback { color: rgba(255,255,255,.68); font-size: .82rem; }
@@ -701,6 +756,8 @@ html, body {
 .math-answer.correct { background: #a8e6b0; border-color: #4bad67; color: #173e25; }
 .math-answer.incorrect { background: #ffc3b9; border-color: #df7463; color: #552820; }
 .math-actions { justify-content: space-between; }
+#form-math-score { margin-top: 14px; }
+.math-game-box .ranking-list { text-align: left; margin-top: 12px; }
 
 @media (max-width: 480px) {
   .mode-options-grid {

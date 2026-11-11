@@ -258,10 +258,14 @@ function getCurrentLevel() {
 }
 
 const RANKING_PAINT_KEY = 'lara_paint_ranking';
+const RANKING_MATH_KEY = 'lara_math_ranking_v1';
 
 function getRankingKey(level = getCurrentLevel()) {
   if (level === 'pintar' || level === 'relax') {
     return RANKING_PAINT_KEY;
+  }
+  if (level === 'mates') {
+    return RANKING_MATH_KEY;
   }
   return `${RANKING_BASE_KEY}_lvl_${level}`;
 }
@@ -322,6 +326,45 @@ function saveRanking(list, level = getCurrentLevel()) {
   } catch (e) {
     console.warn('Error al guardar ranking:', e);
   }
+}
+
+function saveRankingEntry(level, entry) {
+  const list = loadRanking(level);
+  list.push(entry);
+  list.sort((a, b) => b.score - a.score || a.time - b.time);
+  const trimmed = list.slice(0, 50);
+  saveRanking(trimmed, level);
+  return trimmed;
+}
+
+function formatRankingScore(entry, mode) {
+  if (mode === 'mates') {
+    const timeText = Number.isFinite(entry.time) ? ` · ${entry.time.toFixed(1)}s` : '';
+    return `${entry.score}/10${timeText}`;
+  }
+  return entry.score;
+}
+
+function renderRankingList(listEl, emptyEl, list, highlightId = null, mode = null) {
+  if (!listEl) return;
+  listEl.innerHTML = '';
+  if (list.length === 0) {
+    if (emptyEl) emptyEl.removeAttribute('hidden');
+    return;
+  }
+  if (emptyEl) emptyEl.setAttribute('hidden', '');
+  list.slice(0, 10).forEach((entry, i) => {
+    const li = document.createElement('li');
+    if (entry.id === highlightId) li.className = 'me';
+    const pos = document.createElement('span');
+    pos.textContent = `${i + 1}.`;
+    const name = document.createElement('span');
+    name.textContent = entry.name;
+    const pts = document.createElement('span');
+    pts.textContent = formatRankingScore(entry, mode);
+    li.append(pos, name, pts);
+    listEl.appendChild(li);
+  });
 }
 
 function getBricksTop() {
@@ -906,24 +949,7 @@ function closeGameOverModal() {
 function renderRanking(list, highlightId, selectedLevel = currentRankingTab) {
   currentRankingTab = selectedLevel;
   updateRankingTabsUI(selectedLevel);
-  rankingList.innerHTML = '';
-  if (list.length === 0) {
-    if (rankingEmpty) rankingEmpty.removeAttribute('hidden');
-  } else {
-    if (rankingEmpty) rankingEmpty.setAttribute('hidden', '');
-    list.slice(0, 10).forEach((entry, i) => {
-      const li = document.createElement('li');
-      if (entry.id === highlightId) li.className = 'me';
-      const pos = document.createElement('span');
-      pos.textContent = `${i + 1}.`;
-      const name = document.createElement('span');
-      name.textContent = entry.name;
-      const pts = document.createElement('span');
-      pts.textContent = entry.score;
-      li.append(pos, name, pts);
-      rankingList.appendChild(li);
-    });
-  }
+  renderRankingList(rankingList, rankingEmpty, list, highlightId, selectedLevel);
 }
 
 if (rankingTabs) {
@@ -947,11 +973,7 @@ formScore.addEventListener('submit', (e) => {
     const lvl = 'pintar';
     const totalTime = relaxChallenge.stepTimes[0] + relaxChallenge.stepTimes[1] + relaxChallenge.stepTimes[2];
     const entry = { id: `s-${Date.now()}`, name, score: relaxChallenge.score, time: totalTime };
-    const list = loadRanking(lvl);
-    list.push(entry);
-    list.sort((a, b) => b.score - a.score || a.time - b.time);
-    const trimmed = list.slice(0, 50);
-    saveRanking(trimmed, lvl);
+    const trimmed = saveRankingEntry(lvl, entry);
 
     formScore.hidden = true;
     renderRanking(trimmed, entry.id, lvl);
@@ -962,11 +984,7 @@ formScore.addEventListener('submit', (e) => {
   if (game.state !== 'finished') return;
   const lvl = game.level || getCurrentLevel();
   const entry = { id: `s-${Date.now()}`, name, score: game.score, time: game.elapsed };
-  const list = loadRanking(lvl);
-  list.push(entry);
-  list.sort((a, b) => b.score - a.score || a.time - b.time);
-  const trimmed = list.slice(0, 50);
-  saveRanking(trimmed, lvl);
+  const trimmed = saveRankingEntry(lvl, entry);
 
   formScore.hidden = true;
   renderRanking(trimmed, entry.id, lvl);
@@ -2064,6 +2082,106 @@ if (btnChooseBreak) {
   });
 }
 
+// Modal de Rankings desde el selector inicial
+const modalRankings = document.getElementById('modal-rankings');
+const btnOpenRankings = document.getElementById('btn-open-rankings');
+const btnRankingsBack = document.getElementById('btn-rankings-back');
+const homeRankingTabs = document.getElementById('home-ranking-tabs');
+const homeRankingsPanel = document.getElementById('home-rankings-panel');
+const homeRomperLevels = document.getElementById('home-romper-levels');
+const homeRankingEmpty = document.getElementById('home-ranking-empty');
+const homeRankingList = document.getElementById('home-ranking-list');
+
+let homeRankingGame = 'pintar';
+let homeRankingLevel = 1;
+
+function renderHomeRanking(gameMode = homeRankingGame, romperLevel = homeRankingLevel) {
+  homeRankingGame = gameMode;
+  homeRankingLevel = romperLevel;
+
+  if (homeRankingTabs) {
+    homeRankingTabs.querySelectorAll('[role="tab"]').forEach((tab) => {
+      const isSelected = tab.dataset.game === gameMode;
+      tab.setAttribute('aria-selected', String(isSelected));
+      tab.tabIndex = isSelected ? 0 : -1;
+      if (isSelected && homeRankingsPanel) {
+        homeRankingsPanel.setAttribute('aria-labelledby', tab.id);
+        tab.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      }
+    });
+  }
+
+  if (homeRomperLevels) {
+    homeRomperLevels.hidden = gameMode !== 'romper';
+    homeRomperLevels.querySelectorAll('.rank-subtab-btn').forEach((btn) => {
+      const isPressed = Number(btn.dataset.level) === romperLevel;
+      btn.setAttribute('aria-pressed', String(isPressed));
+    });
+  }
+
+  const key = gameMode === 'romper' ? romperLevel : gameMode;
+  const list = loadRanking(key);
+  renderRankingList(homeRankingList, homeRankingEmpty, list, null, gameMode);
+}
+
+function openHomeRankingsModal() {
+  if (!modalRankings) return;
+  modalSelectMode?.setAttribute('hidden', '');
+  modalRankings.removeAttribute('hidden');
+  renderHomeRanking();
+  const activeTab = homeRankingTabs?.querySelector('[aria-selected="true"]');
+  setTimeout(() => activeTab?.focus(), 30);
+}
+
+function closeHomeRankingsModal() {
+  if (!modalRankings || modalRankings.hasAttribute('hidden')) return;
+  modalRankings.setAttribute('hidden', '');
+  modalSelectMode?.removeAttribute('hidden');
+  btnOpenRankings?.focus();
+}
+
+btnOpenRankings?.addEventListener('click', openHomeRankingsModal);
+btnRankingsBack?.addEventListener('click', closeHomeRankingsModal);
+
+homeRankingTabs?.addEventListener('click', (e) => {
+  const tab = e.target.closest('[role="tab"]');
+  if (!tab || !tab.dataset.game) return;
+  renderHomeRanking(tab.dataset.game, homeRankingLevel);
+});
+
+homeRankingTabs?.addEventListener('keydown', (e) => {
+  const tabs = [...homeRankingTabs.querySelectorAll('[role="tab"]')];
+  const idx = tabs.indexOf(document.activeElement);
+  if (idx === -1) return;
+
+  let nextIdx = -1;
+  if (e.key === 'ArrowRight') nextIdx = (idx + 1) % tabs.length;
+  else if (e.key === 'ArrowLeft') nextIdx = (idx - 1 + tabs.length) % tabs.length;
+  else if (e.key === 'Home') nextIdx = 0;
+  else if (e.key === 'End') nextIdx = tabs.length - 1;
+  if (nextIdx === -1) return;
+
+  e.preventDefault();
+  const nextTab = tabs[nextIdx];
+  renderHomeRanking(nextTab.dataset.game, homeRankingLevel);
+  nextTab.focus();
+});
+
+homeRomperLevels?.addEventListener('click', (e) => {
+  const btn = e.target.closest('.rank-subtab-btn');
+  if (!btn) return;
+  const lvl = parseInt(btn.dataset.level, 10);
+  if (!lvl) return;
+  renderHomeRanking('romper', lvl);
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && modalRankings && !modalRankings.hasAttribute('hidden')) {
+    e.preventDefault();
+    closeHomeRankingsModal();
+  }
+});
+
 // Reto de cálculo mental: 10 preguntas con cuatro opciones cada una.
 const mathModal = document.getElementById('modal-math-game');
 const mathProgress = document.getElementById('math-progress');
@@ -2073,10 +2191,18 @@ const mathAnswers = document.getElementById('math-answers');
 const mathFeedback = document.getElementById('math-feedback');
 const mathNext = document.getElementById('btn-math-next');
 const mathFinish = document.getElementById('btn-math-finish');
+const btnMathBack = document.getElementById('btn-math-back');
+const formMathScore = document.getElementById('form-math-score');
+const inputMathPlayerName = document.getElementById('input-math-player-name');
+const btnMathSkipScore = document.getElementById('btn-math-skip-score');
+const mathRankingBox = document.getElementById('math-ranking-box');
+const mathRankingEmpty = document.getElementById('math-ranking-empty');
+const mathRankingList = document.getElementById('math-ranking-list');
 let mathRound = 0;
 let mathScore = 0;
 let mathCurrentAnswer = 0;
 let mathStartedAt = 0;
+let mathLastElapsed = 0;
 let mathBest = loadMathBest();
 const MATH_BEST_KEY = 'lara_math_best_v1';
 
@@ -2148,9 +2274,9 @@ function showMathQuestion() {
       }
       mathProgress.textContent = `Pregunta ${mathRound} de 10 · Aciertos: ${mathScore}`;
       mathNext.hidden = mathRound >= 10;
-      mathFinish.hidden = mathRound < 10;
       if (mathRound >= 10) {
         const elapsed = (performance.now() - mathStartedAt) / 1000;
+        mathLastElapsed = elapsed;
         const beatScore = !mathBest || mathScore > mathBest.score;
         const beatTime = mathBest && mathScore >= mathBest.score && elapsed < mathBest.time;
         const newRecord = beatScore || beatTime;
@@ -2159,7 +2285,6 @@ function showMathQuestion() {
             ? { score: mathScore, time: elapsed }
             : { score: mathBest.score, time: elapsed };
           try { localStorage.setItem(MATH_BEST_KEY, JSON.stringify(mathBest)); } catch { /* El juego sigue aunque el almacenamiento esté desactivado. */ }
-          renderMathBest();
         }
         mathProgress.textContent = 'Reto terminado';
         mathQuestion.textContent = `¡Has acertado ${mathScore} de 10!`;
@@ -2168,6 +2293,19 @@ function showMathQuestion() {
           : mathScore === 10 ? '¡Perfecto! ¡Diez respuestas correctas!' : '¡Buen trabajo! Cada partida te ayuda a aprender.';
         mathRecord.textContent = `Tiempo: ${elapsed.toFixed(1)} s · ${mathBest.score}/10 · mejor tiempo ${mathBest.time.toFixed(1)} s`;
         mathAnswers.replaceChildren();
+        mathFinish.hidden = true;
+        if (btnMathBack) btnMathBack.hidden = true;
+        if (mathRankingBox) mathRankingBox.hidden = true;
+        if (formMathScore) {
+          formMathScore.hidden = false;
+          if (inputMathPlayerName) {
+            inputMathPlayerName.value = '';
+            setTimeout(() => inputMathPlayerName.focus(), 60);
+          }
+        } else {
+          mathFinish.hidden = false;
+          if (btnMathBack) btnMathBack.hidden = false;
+        }
       }
     });
     mathAnswers.appendChild(button);
@@ -2176,22 +2314,51 @@ function showMathQuestion() {
   mathFinish.hidden = true;
 }
 
+function startMathChallenge() {
+  mathRound = 0;
+  mathScore = 0;
+  mathLastElapsed = 0;
+  mathStartedAt = performance.now();
+  if (formMathScore) formMathScore.hidden = true;
+  if (mathRankingBox) mathRankingBox.hidden = true;
+  if (btnMathBack) btnMathBack.hidden = false;
+  renderMathBest();
+  showMathQuestion();
+}
+
+function showMathRanking(highlightId = null) {
+  if (formMathScore) formMathScore.hidden = true;
+  renderRankingList(mathRankingList, mathRankingEmpty, loadRanking('mates'), highlightId, 'mates');
+  if (mathRankingBox) mathRankingBox.hidden = false;
+  if (btnMathBack) btnMathBack.hidden = false;
+  mathFinish.hidden = false;
+}
+
+formMathScore?.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const name = inputMathPlayerName?.value.trim().toUpperCase();
+  if (!name) return;
+  const entry = { id: `s-${Date.now()}`, name, score: mathScore, time: mathLastElapsed };
+  const trimmed = saveRankingEntry('mates', entry);
+  if (formMathScore) formMathScore.hidden = true;
+  renderRankingList(mathRankingList, mathRankingEmpty, trimmed, entry.id, 'mates');
+  if (mathRankingBox) mathRankingBox.hidden = false;
+  if (btnMathBack) btnMathBack.hidden = false;
+  mathFinish.hidden = false;
+});
+
+btnMathSkipScore?.addEventListener('click', () => {
+  showMathRanking(null);
+});
+
 document.getElementById('btn-choose-math')?.addEventListener('click', () => {
   modalSelectMode?.setAttribute('hidden', '');
   mathModal?.removeAttribute('hidden');
-  mathRound = 0;
-  mathScore = 0;
-  mathStartedAt = performance.now();
-  renderMathBest();
-  showMathQuestion();
+  startMathChallenge();
 });
 mathNext?.addEventListener('click', showMathQuestion);
-mathFinish?.addEventListener('click', () => {
-  mathRound = 0;
-  mathScore = 0;
-  showMathQuestion();
-});
-document.getElementById('btn-math-back')?.addEventListener('click', () => {
+mathFinish?.addEventListener('click', startMathChallenge);
+btnMathBack?.addEventListener('click', () => {
   soundManager.stopMathClock();
   mathModal?.setAttribute('hidden', '');
   modalSelectMode?.removeAttribute('hidden');
