@@ -1,4 +1,14 @@
 import Matter from 'matter-js';
+import {
+  collection,
+  addDoc,
+  getDocsFromServer,
+  query,
+  orderBy,
+  limit,
+  serverTimestamp,
+} from 'firebase/firestore';
+import { db } from './firebase.js';
 import { soundManager } from './audioManager.js';
 import { inject as injectVercelAnalytics } from '@vercel/analytics';
 import labubuUrl from './assets/labubu.png';
@@ -15,9 +25,9 @@ const CONFIG = {
   fontFamily: 'Cinzel',
   dropDelay: 650, // ms entre caída de cada letra
   linePoints: 80, // resolución de la malla elástica
-  springK: 0.15,  // rigidez elástica más suave: la cuerda se hunde y rebota más
-  damping: 0.87,  // menor amortiguación: oscila varias veces antes de asentarse
-  spread: 0.16,   // propagación localizada
+  springK: 0.075, // rigidez elástica baja: movimiento suave y fluido
+  damping: 0.91,  // amortiguación suave: asienta sin rebotes nerviosos
+  spread: 0.14,   // propagación gradual de la onda
 };
 
 // Gestión de palabras activas y personalizadas
@@ -226,7 +236,7 @@ function spawnLetter(char, startX, size) {
 
 // Deformación del espacio-tiempo (Hundimiento elástico)
 function perturbLine(impactX, force) {
-  const radius = width * 0.18;
+  const radius = width * 0.25;
   for (let node of lineNodes) {
     const dist = Math.abs(node.x - impactX);
     if (dist < radius) {
@@ -237,7 +247,6 @@ function perturbLine(impactX, force) {
 }
 
 // --- JUEGO TIPO ARKANOID: BLOQUES CON LETRA ---
-const RANKING_BASE_KEY = 'lara_arkanoid_ranking';
 const POINTS_PER_BRICK = 100;
 const WRONG_HIT_PENALTY = 10;
 const SECONDS_PER_BRICK = 8;   // tiempo de referencia por bloque: bonus de 10 pts por segundo que sobre
@@ -255,19 +264,6 @@ const LEVEL_CONFIG = {
 function getCurrentLevel() {
   const count = wordsList.filter((w) => w.active).length;
   return Math.min(4, Math.max(1, count));
-}
-
-const RANKING_PAINT_KEY = 'lara_paint_ranking';
-const RANKING_MATH_KEY = 'lara_math_ranking_v1';
-
-function getRankingKey(level = getCurrentLevel()) {
-  if (level === 'pintar' || level === 'relax') {
-    return RANKING_PAINT_KEY;
-  }
-  if (level === 'mates') {
-    return RANKING_MATH_KEY;
-  }
-  return `${RANKING_BASE_KEY}_lvl_${level}`;
 }
 
 let bricks = [];
@@ -304,37 +300,95 @@ function showDifficultyToast() {
   }, 1600);
 }
 
-function loadRanking(level = getCurrentLevel()) {
-  try {
-    const key = getRankingKey(level);
-    const parsed = JSON.parse(localStorage.getItem(key));
-    if (Array.isArray(parsed)) return parsed;
-    // Migración retrocompatible si nivel 1
-    if (level === 1) {
-      const legacy = JSON.parse(localStorage.getItem(RANKING_BASE_KEY));
-      if (Array.isArray(legacy)) return legacy;
-    }
-  } catch (e) {
-    console.warn('Error al leer ranking:', e);
-  }
-  return [];
+function toRankingModeKey(level = getCurrentLevel()) {
+  if (level === 'pintar' || level === 'relax') return 'pintar';
+  if (level === 'mates') return 'mates';
+  return String(Math.min(4, Math.max(1, parseInt(level, 10) || 1)));
 }
 
-function saveRanking(list, level = getCurrentLevel()) {
-  try {
-    localStorage.setItem(getRankingKey(level), JSON.stringify(list));
-  } catch (e) {
-    console.warn('Error al guardar ranking:', e);
+function runWithNetworkTimeout(promise, timeoutMs = 8000) {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    return Promise.reject(new Error('OFFLINE'));
+  }
+  let timer = null;
+  const timeoutPromise = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error('OFFLINE')), timeoutMs);
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
+async function loadRanking(level = getCurrentLevel()) {
+  const modeKey = toRankingModeKey(level);
+  const q = query(
+    collection(db, 'rankings', modeKey, 'entries'),
+    orderBy('score', 'desc'),
+    orderBy('time', 'asc'),
+    limit(10)
+  );
+  const snapshot = await runWithNetworkTimeout(getDocsFromServer(q));
+  return snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
+}
+
+async function saveRankingEntry(level, entry) {
+  const modeKey = toRankingModeKey(level);
+  const cleanName = String(entry.name || '').trim().toUpperCase().slice(0, 10);
+  const maxScore = modeKey === 'mates' ? 10 : 1000000;
+  const cleanScore = Math.max(0, Math.min(maxScore, Math.round(Number(entry.score) || 0)));
+  const cleanTime = Math.max(0, Math.min(86400, Number((Number(entry.time) || 0).toFixed(2))));
+
+  const payload = {
+    name: cleanName,
+    score: cleanScore,
+    time: cleanTime,
+    createdAt: serverTimestamp(),
+  };
+
+  if (
+    typeof entry.avatar === 'string' &&
+    entry.avatar.length <= 30000 &&
+    /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(entry.avatar)
+  ) {
+    payload.avatar = entry.avatar;
+  }
+
+  const docRef = await runWithNetworkTimeout(
+    addDoc(collection(db, 'rankings', modeKey, 'entries'), payload)
+  );
+  const list = await loadRanking(modeKey).catch(() => [{ id: docRef.id, ...payload }]);
+  return { id: docRef.id, list };
+}
+
+function setRankingLoadingState(listEl, emptyEl, message) {
+  if (listEl) listEl.innerHTML = '';
+  if (emptyEl) {
+    emptyEl.textContent = message;
+    emptyEl.removeAttribute('hidden');
   }
 }
 
-function saveRankingEntry(level, entry) {
-  const list = loadRanking(level);
-  list.push(entry);
-  list.sort((a, b) => b.score - a.score || a.time - b.time);
-  const trimmed = list.slice(0, 50);
-  saveRanking(trimmed, level);
-  return trimmed;
+async function loadAndRenderRanking({
+  listEl,
+  emptyEl,
+  emptyText,
+  level,
+  mode = null,
+  highlightId = null,
+  tokenState,
+}) {
+  const reqToken = ++tokenState.id;
+  setRankingLoadingState(listEl, emptyEl, 'Cargando rankings...');
+  try {
+    const list = await loadRanking(level);
+    if (reqToken !== tokenState.id) return;
+    if (emptyEl) emptyEl.textContent = emptyText;
+    renderRankingList(listEl, emptyEl, list, highlightId, mode);
+  } catch (err) {
+    if (reqToken !== tokenState.id) return;
+    console.warn('Error al leer ranking de Firestore:', err);
+    setRankingLoadingState(listEl, emptyEl, 'Sin conexión para cargar el ranking');
+  }
 }
 
 function formatRankingScore(entry, mode) {
@@ -358,11 +412,30 @@ function renderRankingList(listEl, emptyEl, list, highlightId = null, mode = nul
     if (entry.id === highlightId) li.className = 'me';
     const pos = document.createElement('span');
     pos.textContent = `${i + 1}.`;
+
+    const player = document.createElement('span');
+    player.className = 'rank-player';
+    if (typeof entry.avatar === 'string' && entry.avatar.startsWith('data:image/')) {
+      const img = document.createElement('img');
+      img.className = 'rank-avatar';
+      img.src = entry.avatar;
+      img.alt = '';
+      player.appendChild(img);
+    } else {
+      const placeholder = document.createElement('span');
+      placeholder.className = 'rank-avatar placeholder';
+      placeholder.setAttribute('aria-hidden', 'true');
+      placeholder.textContent = '👤';
+      player.appendChild(placeholder);
+    }
     const name = document.createElement('span');
+    name.className = 'rank-player-name';
     name.textContent = entry.name;
+    player.appendChild(name);
+
     const pts = document.createElement('span');
     pts.textContent = formatRankingScore(entry, mode);
-    li.append(pos, name, pts);
+    li.append(pos, player, pts);
     listEl.appendChild(li);
   });
 }
@@ -899,8 +972,259 @@ const rankingTabs = document.getElementById('ranking-tabs');
 const rankingEmpty = document.getElementById('ranking-empty');
 const rankingList = document.getElementById('ranking-list');
 const btnPlayAgain = document.getElementById('btn-play-again');
+const scoreSelfieSlot = document.getElementById('score-selfie-slot');
+const mathSelfieSlot = document.getElementById('math-selfie-slot');
 
+const selfieManager = (() => {
+  const WORK_SIZE = 56;
+  const OUTPUT_SIZE = 96;
+
+  const wrap = document.createElement('div');
+  wrap.className = 'selfie-inner';
+
+  const frame = document.createElement('div');
+  frame.className = 'selfie-frame';
+
+  const video = document.createElement('video');
+  video.className = 'selfie-video';
+  video.autoplay = true;
+  video.playsInline = true;
+  video.muted = true;
+  video.setAttribute('aria-hidden', 'true');
+
+  const previewCanvas = document.createElement('canvas');
+  previewCanvas.className = 'selfie-canvas';
+  previewCanvas.width = OUTPUT_SIZE;
+  previewCanvas.height = OUTPUT_SIZE;
+  previewCanvas.hidden = true;
+  const previewCtx = previewCanvas.getContext('2d');
+
+  const workCanvas = document.createElement('canvas');
+  workCanvas.width = WORK_SIZE;
+  workCanvas.height = WORK_SIZE;
+  const workCtx = workCanvas.getContext('2d', { willReadFrequently: true });
+  const lumBuffer = new Float32Array(WORK_SIZE * WORK_SIZE);
+
+  const fallbackIcon = document.createElement('span');
+  fallbackIcon.className = 'selfie-fallback-icon';
+  fallbackIcon.setAttribute('aria-hidden', 'true');
+  fallbackIcon.textContent = '🎨';
+
+  frame.append(video, previewCanvas, fallbackIcon);
+
+  const meta = document.createElement('div');
+  meta.className = 'selfie-meta';
+
+  const statusEl = document.createElement('span');
+  statusEl.className = 'selfie-status';
+
+  const toggleBtn = document.createElement('button');
+  toggleBtn.type = 'button';
+  toggleBtn.className = 'selfie-toggle-btn';
+  toggleBtn.textContent = 'Omitir avatar';
+
+  meta.append(statusEl, toggleBtn);
+  wrap.append(frame, meta);
+
+  let stream = null;
+  let currentSlot = null;
+  let skipped = false;
+  let requestToken = 0;
+  let previewTimer = null;
+
+  function renderCartoonFrame() {
+    if (!workCtx || !previewCtx || video.readyState < 2 || video.videoWidth <= 0 || video.videoHeight <= 0) {
+      return false;
+    }
+
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+    const crop = Math.min(vw, vh);
+    const sx = (vw - crop) / 2;
+    const sy = (vh - crop) / 2;
+
+    // 1. Reducir y espejar para suavizar rasgos fotográficos antes de estilizar
+    workCtx.save();
+    workCtx.imageSmoothingEnabled = true;
+    workCtx.clearRect(0, 0, WORK_SIZE, WORK_SIZE);
+    workCtx.translate(WORK_SIZE, 0);
+    workCtx.scale(-1, 1);
+    workCtx.drawImage(video, sx, sy, crop, crop, 0, 0, WORK_SIZE, WORK_SIZE);
+    workCtx.restore();
+
+    const imgData = workCtx.getImageData(0, 0, WORK_SIZE, WORK_SIZE);
+    const data = imgData.data;
+
+    // 2. Calcular luminancia para detección de bordes + cuantización cel-shading
+    for (let i = 0, p = 0; i < data.length; i += 4, p++) {
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+      lumBuffer[p] = lum;
+
+      // Realzar color y reducir a tonos planos de dibujo animado
+      const sat = 1.35;
+      const sr = Math.max(0, Math.min(255, lum + (r - lum) * sat));
+      const sg = Math.max(0, Math.min(255, lum + (g - lum) * sat));
+      const sb = Math.max(0, Math.min(255, lum + (b - lum) * sat));
+
+      data[i] = Math.min(255, Math.floor(sr / 52) * 52 + 24);
+      data[i + 1] = Math.min(255, Math.floor(sg / 52) * 52 + 24);
+      data[i + 2] = Math.min(255, Math.floor(sb / 52) * 52 + 24);
+    }
+
+    // 3. Trazos de contorno tipo cómic sobre los bordes de contraste
+    for (let y = 1; y < WORK_SIZE - 1; y++) {
+      for (let x = 1; x < WORK_SIZE - 1; x++) {
+        const p = y * WORK_SIZE + x;
+        const gx = lumBuffer[p + 1] - lumBuffer[p - 1];
+        const gy = lumBuffer[p + WORK_SIZE] - lumBuffer[p - WORK_SIZE];
+        const edge = Math.hypot(gx, gy);
+        if (edge > 26) {
+          const idx = p * 4;
+          const ink = Math.min(0.88, (edge - 26) / 60);
+          data[idx] = Math.round(data[idx] * (1 - ink) + 20 * ink);
+          data[idx + 1] = Math.round(data[idx + 1] * (1 - ink) + 24 * ink);
+          data[idx + 2] = Math.round(data[idx + 2] * (1 - ink) + 36 * ink);
+        }
+      }
+    }
+
+    workCtx.putImageData(imgData, 0, 0);
+
+    previewCtx.imageSmoothingEnabled = true;
+    previewCtx.clearRect(0, 0, OUTPUT_SIZE, OUTPUT_SIZE);
+    previewCtx.drawImage(workCanvas, 0, 0, OUTPUT_SIZE, OUTPUT_SIZE);
+    return true;
+  }
+
+  function stopPreviewLoop() {
+    if (previewTimer) {
+      clearInterval(previewTimer);
+      previewTimer = null;
+    }
+  }
+
+  function startPreviewLoop() {
+    stopPreviewLoop();
+    renderCartoonFrame();
+    previewTimer = setInterval(renderCartoonFrame, 70);
+  }
+
+  function stopStream() {
+    stopPreviewLoop();
+    if (stream) {
+      stream.getTracks().forEach((track) => track.stop());
+      stream = null;
+    }
+    video.srcObject = null;
+    previewCanvas.hidden = true;
+    fallbackIcon.hidden = false;
+  }
+
+  function setStatus(text, showToggle, toggleText = 'Omitir avatar') {
+    statusEl.textContent = text;
+    toggleBtn.hidden = !showToggle;
+    toggleBtn.textContent = toggleText;
+  }
+
+  async function requestCamera(slotEl) {
+    if (!slotEl) return;
+    currentSlot = slotEl;
+    if (wrap.parentElement !== slotEl) {
+      slotEl.replaceChildren(wrap);
+    }
+    skipped = false;
+    stopStream();
+
+    if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
+      setStatus('Cámara no disponible (puedes guardar igual)', false);
+      return;
+    }
+
+    const token = ++requestToken;
+    setStatus('Solicitando permiso de cámara...', true, 'Omitir avatar');
+
+    try {
+      const mediaStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user', width: { ideal: 240 }, height: { ideal: 240 } },
+        audio: false,
+      });
+
+      if (token !== requestToken || skipped) {
+        mediaStream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+
+      stream = mediaStream;
+      video.srcObject = mediaStream;
+      await video.play().catch(() => {});
+      previewCanvas.hidden = false;
+      fallbackIcon.hidden = true;
+      startPreviewLoop();
+      setStatus('🎨 Se guardará en modo avatar animado', true, 'Omitir avatar');
+    } catch {
+      if (token !== requestToken) return;
+      stopStream();
+      setStatus('Sin permiso de cámara (puedes guardar igual)', true, 'Reintentar');
+    }
+  }
+
+  toggleBtn.addEventListener('click', () => {
+    if (!skipped && stream) {
+      skipped = true;
+      requestToken += 1;
+      stopStream();
+      setStatus('Sin avatar para esta partida', true, 'Activar cámara');
+      return;
+    }
+    if (currentSlot) {
+      requestCamera(currentSlot);
+    }
+  });
+
+  function capture() {
+    if (skipped || !stream || !renderCartoonFrame()) {
+      return null;
+    }
+    return previewCanvas.toDataURL('image/jpeg', 0.72);
+  }
+
+  function captureAndStop() {
+    const dataUrl = capture();
+    stop();
+    return dataUrl;
+  }
+
+  function stop() {
+    requestToken += 1;
+    stopStream();
+  }
+
+  return { start: requestCamera, capture, captureAndStop, stop };
+})();
+
+const scoreSaveError = document.getElementById('score-save-error');
+const mathSaveError = document.getElementById('math-save-error');
+const gameOverRankingToken = { id: 0 };
+const homeRankingToken = { id: 0 };
+const mathRankingToken = { id: 0 };
+let pendingScoreAvatar = null;
+let pendingMathAvatar = null;
 let currentRankingTab = 1;
+
+function showFormError(errorEl, message) {
+  if (!errorEl) return;
+  errorEl.textContent = message;
+  errorEl.hidden = false;
+}
+
+function clearFormError(errorEl) {
+  if (!errorEl) return;
+  errorEl.textContent = '';
+  errorEl.hidden = true;
+}
 
 function updateRankingTabsUI(selectedLevel) {
   if (!rankingTabs) return;
@@ -920,10 +1244,13 @@ function openGameOverModal() {
     const t3 = relaxChallenge.stepTimes[2].toFixed(1);
     const totalT = (relaxChallenge.stepTimes[0] + relaxChallenge.stepTimes[1] + relaxChallenge.stepTimes[2]).toFixed(1);
     goSummary.textContent = `${relaxChallenge.score} puntos · Total ${totalT}s (Reto 1: ${t1}s · Reto 2: ${t2}s · Reto 3: ${t3}s)`;
+    pendingScoreAvatar = null;
+    clearFormError(scoreSaveError);
     formScore.hidden = false;
     rankingBox.hidden = true;
     inputPlayerName.value = '';
     modalGameOver.removeAttribute('hidden');
+    selfieManager.start(scoreSelfieSlot);
     setTimeout(() => inputPlayerName.focus(), 60);
     return;
   }
@@ -933,14 +1260,20 @@ function openGameOverModal() {
   if (goTitle) goTitle.textContent = `¡NIVEL ${lvl} COMPLETADO!`;
   const extraSaved = game.bonusTimeSaved ? `, extra -${game.bonusTimeSaved}s` : '';
   goSummary.textContent = `${game.score} puntos · ${game.elapsed.toFixed(1)}s · ${game.throws} lanzamientos (bonus tiempo +${game.timeBonus || 0}${extraSaved}, bonus lanzamientos +${game.throwBonus || 0})`;
+  pendingScoreAvatar = null;
+  clearFormError(scoreSaveError);
   formScore.hidden = false;
   rankingBox.hidden = true;
   inputPlayerName.value = '';
   modalGameOver.removeAttribute('hidden');
+  selfieManager.start(scoreSelfieSlot);
   setTimeout(() => inputPlayerName.focus(), 60);
 }
 
 function closeGameOverModal() {
+  selfieManager.stop();
+  pendingScoreAvatar = null;
+  clearFormError(scoreSaveError);
   if (!modalGameOver) return;
   modalGameOver.setAttribute('hidden', '');
   inputPlayerName.blur();
@@ -949,6 +1282,7 @@ function closeGameOverModal() {
 function renderRanking(list, highlightId, selectedLevel = currentRankingTab) {
   currentRankingTab = selectedLevel;
   updateRankingTabsUI(selectedLevel);
+  if (rankingEmpty) rankingEmpty.textContent = 'Sin puntuaciones aún en este nivel';
   renderRankingList(rankingList, rankingEmpty, list, highlightId, selectedLevel);
 }
 
@@ -959,36 +1293,70 @@ if (rankingTabs) {
     const lvlAttr = btn.getAttribute('data-level');
     const lvl = lvlAttr === 'pintar' ? 'pintar' : parseInt(lvlAttr, 10);
     if (!lvl) return;
-    const list = loadRanking(lvl);
-    renderRanking(list, null, lvl);
+    currentRankingTab = lvl;
+    updateRankingTabsUI(lvl);
+    loadAndRenderRanking({
+      listEl: rankingList,
+      emptyEl: rankingEmpty,
+      emptyText: 'Sin puntuaciones aún en este nivel',
+      level: lvl,
+      mode: lvl,
+      tokenState: gameOverRankingToken,
+    });
   });
 }
 
-formScore.addEventListener('submit', (e) => {
+formScore.addEventListener('submit', async (e) => {
   e.preventDefault();
   const name = inputPlayerName.value.trim().toUpperCase();
   if (!name) return;
 
-  if (isGyroActive && relaxChallenge.state === 'won') {
-    const lvl = 'pintar';
-    const totalTime = relaxChallenge.stepTimes[0] + relaxChallenge.stepTimes[1] + relaxChallenge.stepTimes[2];
-    const entry = { id: `s-${Date.now()}`, name, score: relaxChallenge.score, time: totalTime };
-    const trimmed = saveRankingEntry(lvl, entry);
+  const isPaint = isGyroActive && relaxChallenge.state === 'won';
+  if (!isPaint && game.state !== 'finished') return;
 
-    formScore.hidden = true;
-    renderRanking(trimmed, entry.id, lvl);
-    rankingBox.hidden = false;
+  clearFormError(scoreSaveError);
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    showFormError(scoreSaveError, 'No puedo guardar sin conexión!');
     return;
   }
 
-  if (game.state !== 'finished') return;
-  const lvl = game.level || getCurrentLevel();
-  const entry = { id: `s-${Date.now()}`, name, score: game.score, time: game.elapsed };
-  const trimmed = saveRankingEntry(lvl, entry);
+  if (!pendingScoreAvatar) {
+    pendingScoreAvatar = selfieManager.capture();
+  }
 
-  formScore.hidden = true;
-  renderRanking(trimmed, entry.id, lvl);
-  rankingBox.hidden = false;
+  const lvl = isPaint ? 'pintar' : (game.level || getCurrentLevel());
+  const score = isPaint ? relaxChallenge.score : game.score;
+  const time = isPaint
+    ? relaxChallenge.stepTimes[0] + relaxChallenge.stepTimes[1] + relaxChallenge.stepTimes[2]
+    : game.elapsed;
+
+  const submitBtn = formScore.querySelector('button[type="submit"]');
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Guardando...';
+  }
+
+  try {
+    const { id, list } = await saveRankingEntry(lvl, {
+      name,
+      score,
+      time,
+      avatar: pendingScoreAvatar,
+    });
+    selfieManager.stop();
+    pendingScoreAvatar = null;
+    formScore.hidden = true;
+    renderRanking(list, id, lvl);
+    rankingBox.hidden = false;
+  } catch (err) {
+    console.warn('Error al guardar en Firestore:', err);
+    showFormError(scoreSaveError, 'No puedo guardar sin conexión!');
+  } finally {
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Guardar';
+    }
+  }
 });
 
 btnPlayAgain.addEventListener('click', () => {
@@ -1169,7 +1537,7 @@ function updateTrampolinePhysics() {
 
       // Fase de Impacto dinámico
       if (body.velocity.y > 1.2) {
-        perturbLine(bodyX, Math.min(body.velocity.y * 1.4 + penetration * 0.2, 34));
+        perturbLine(bodyX, Math.min(body.velocity.y * 0.9 + penetration * 0.15, 20));
 
         // Rebote elástico
         const bounceFactor = isGyroActive ? 0.82 : 0.55;
@@ -1230,25 +1598,27 @@ function updateTrampolinePhysics() {
   }
 }
 
-// Update de la Cuerda Elástica (Ecuación de onda con amortiguación crítica y reposo inamovible)
-function updateFloorMesh() {
+// Update de la Cuerda Elástica (Ecuación de onda suavizada y normalizada por dt)
+function updateFloorMesh(dt = 16.6) {
+  const dtNorm = Math.min(2.0, Math.max(0.5, dt / 16.6));
+  const dampingFactor = Math.pow(CONFIG.damping, dtNorm);
   let hasEnergy = false;
 
   for (let node of lineNodes) {
     const dy = node.targetY - node.y;
 
     // Corte estricto de reposo: si la oscilación es minúscula, bloquear a 0
-    if (Math.abs(dy) < 0.35 && Math.abs(node.vy) < 0.15) {
+    if (Math.abs(dy) < 0.25 && Math.abs(node.vy) < 0.1) {
       node.y = node.targetY;
       node.vy = 0;
       continue;
     }
 
     hasEnergy = true;
-    const springForce = dy * CONFIG.springK;
+    const springForce = dy * CONFIG.springK * dtNorm;
     node.vy += springForce;
-    node.vy *= CONFIG.damping;
-    node.y += node.vy;
+    node.vy *= dampingFactor;
+    node.y += node.vy * dtNorm;
   }
 
   // Si no hay perturbaciones activas, reposo total: cero vibración parásita
@@ -1261,16 +1631,16 @@ function updateFloorMesh() {
     for (let i = 0; i < lineNodes.length; i++) {
       if (i > 0) {
         leftDeltas[i] = CONFIG.spread * (lineNodes[i].y - lineNodes[i - 1].y);
-        lineNodes[i - 1].vy += leftDeltas[i];
+        lineNodes[i - 1].vy += leftDeltas[i] * dtNorm;
       }
       if (i < lineNodes.length - 1) {
         rightDeltas[i] = CONFIG.spread * (lineNodes[i].y - lineNodes[i + 1].y);
-        lineNodes[i + 1].vy += rightDeltas[i];
+        lineNodes[i + 1].vy += rightDeltas[i] * dtNorm;
       }
     }
     for (let i = 0; i < lineNodes.length; i++) {
-      if (i > 0) lineNodes[i - 1].y += leftDeltas[i];
-      if (i < lineNodes.length - 1) lineNodes[i + 1].y += rightDeltas[i];
+      if (i > 0) lineNodes[i - 1].y += leftDeltas[i] * dtNorm;
+      if (i < lineNodes.length - 1) lineNodes[i + 1].y += rightDeltas[i] * dtNorm;
     }
   }
 }
@@ -1318,7 +1688,7 @@ function render(currentTime = performance.now()) {
     processBrickHits();
     processPendingBreaks();
     updateTrampolinePhysics();
-    updateFloorMesh();
+    updateFloorMesh(dt);
 
     // Limpiar Canvas
     ctx.clearRect(0, 0, width, height);
@@ -1626,6 +1996,7 @@ let currentTilt = { x: 0, y: 0.9 };
 let lastBeta = null;
 let lastGamma = null;
 let lastOrientTime = 0;
+let lastMotionSample = null;
 let isVirtualTilting = false;
 let virtualTiltStart = { x: 0, y: 0 };
 let relaxToastTimeout = null;
@@ -1869,21 +2240,21 @@ function updateRelaxMarblesPhysics(dt) {
   if (!isGyroActive) return;
 
   const dtNorm = Math.min(2.5, Math.max(0.5, dt / 16.6));
-  const lerpFactor = Math.min(1, 0.16 * dtNorm);
+  const lerpFactor = Math.min(1, 0.08 * dtNorm);
   currentTilt.x += (targetTilt.x - currentTilt.x) * lerpFactor;
   currentTilt.y += (targetTilt.y - currentTilt.y) * lerpFactor;
 
-  // Aceleración continua en px/frame: simula la gravedad según el grado de inclinación
-  const accelPower = 0.48 * dtNorm;
-  const maxSpeed = 30;
+  // Aceleración continua en px/frame: suave y controlable según la inclinación
+  const accelPower = 0.30 * dtNorm;
+  const maxSpeed = 22;
 
   for (const b of letterBodies) {
     if (b === draggedBody) continue;
     Matter.Sleeping.set(b, false);
 
-    b.frictionAir = 0.0006;
-    b.restitution = 0.86;
-    b.friction = 0.018;
+    b.frictionAir = 0.008;
+    b.restitution = 0.78;
+    b.friction = 0.025;
 
     let vx = b.velocity.x + currentTilt.x * accelPower;
     let vy = b.velocity.y + currentTilt.y * accelPower;
@@ -1903,6 +2274,10 @@ function updateRelaxMarblesPhysics(dt) {
   }
 }
 
+function applyTiltDeadzone(value, deadzone = 0.04) {
+  return Math.abs(value) < deadzone ? 0 : value;
+}
+
 function handleOrientation(e) {
   if (!isGyroActive) return;
   const gamma = e.gamma; // inclinación lateral (-90 a 90)
@@ -1912,31 +2287,32 @@ function handleOrientation(e) {
   const radGamma = (gamma * Math.PI) / 180;
   const radBeta = (beta * Math.PI) / 180;
 
-  const tx = Math.max(-1.1, Math.min(1.1, Math.sin(radGamma) * 1.35));
+  const tx = applyTiltDeadzone(Math.max(-1.0, Math.min(1.0, Math.sin(radGamma) * 1.0)));
   const isFlat = Math.abs(beta) < 20 && Math.abs(gamma) < 70;
-  const ty = isFlat
-    ? Math.max(-1.1, Math.min(1.1, Math.sin(radBeta) * 1.35))
-    : Math.max(-1.1, Math.min(1.1, Math.sin(((beta - 32) * Math.PI) / 90) * 1.35));
+  const rawTy = isFlat
+    ? Math.sin(radBeta) * 1.0
+    : Math.sin(((beta - 32) * Math.PI) / 90) * 1.0;
+  const ty = applyTiltDeadzone(Math.max(-1.0, Math.min(1.0, rawTy)));
 
   targetTilt.x = tx;
   targetTilt.y = ty;
 
-  // Sacudida rápida por giro angular
+  // Sacudida rápida por giro angular (umbral suavizado para evitar saltos al inclinar despacio)
   const now = performance.now();
-  if (lastOrientTime > 0) {
-    const dt = Math.max((now - lastOrientTime) / 1000, 0.008);
+  if (lastOrientTime > 0 && lastBeta !== null && lastGamma !== null) {
+    const dt = Math.max((now - lastOrientTime) / 1000, 0.012);
     const speedGamma = (gamma - lastGamma) / dt;
     const speedBeta = (beta - lastBeta) / dt;
     const shakeSpeed = Math.hypot(speedGamma, speedBeta);
-    if (shakeSpeed > 130) {
-      const impulse = Math.min((shakeSpeed - 130) * 0.04, 22);
+    if (shakeSpeed > 180) {
+      const impulse = Math.min((shakeSpeed - 180) * 0.025, 14);
       const dirX = speedGamma / shakeSpeed;
       const dirY = speedBeta / shakeSpeed;
       letterBodies.forEach(b => {
         if (b === draggedBody) return;
         Body.setVelocity(b, {
-          x: b.velocity.x + dirX * impulse * (0.8 + Math.random() * 0.4),
-          y: b.velocity.y + dirY * impulse * (0.8 + Math.random() * 0.4),
+          x: b.velocity.x + dirX * impulse * (0.85 + Math.random() * 0.3),
+          y: b.velocity.y + dirY * impulse * (0.85 + Math.random() * 0.3),
         });
       });
     }
@@ -1946,18 +2322,35 @@ function handleOrientation(e) {
   lastOrientTime = now;
 }
 
-// Acelerómetro: respuesta inmediata cuando se agita el móvil como una caja de canicas
+// Acelerómetro: detecta sacudidas reales por variación (delta) sin dispararse por la gravedad estática
 function handleMotion(e) {
   if (!isGyroActive) return;
-  const acc = e.acceleration || e.accelerationIncludingGravity;
+  const linearAcc = e.acceleration;
+  const fallbackAcc = e.accelerationIncludingGravity;
+  const acc = linearAcc || fallbackAcc;
   if (!acc) return;
+
   const ax = acc.x ?? 0;
   const ay = acc.y ?? 0;
-  const mag = Math.hypot(ax, ay);
-  if (mag > 2.8) {
-    const shakePower = Math.min((mag - 2.8) * 1.3, 24);
-    const dirX = -ax / (mag || 1);
-    const dirY = ay / (mag || 1);
+  const az = acc.z ?? 0;
+
+  let dx = ax;
+  let dy = ay;
+  if (!linearAcc) {
+    if (!lastMotionSample) {
+      lastMotionSample = { x: ax, y: ay, z: az };
+      return;
+    }
+    dx = ax - lastMotionSample.x;
+    dy = ay - lastMotionSample.y;
+    lastMotionSample = { x: ax, y: ay, z: az };
+  }
+
+  const mag = Math.hypot(dx, dy);
+  if (mag > 6.5) {
+    const shakePower = Math.min((mag - 6.5) * 0.9, 16);
+    const dirX = -dx / (mag || 1);
+    const dirY = dy / (mag || 1);
     letterBodies.forEach(b => {
       if (b === draggedBody) return;
       Matter.Sleeping.set(b, false);
@@ -1997,6 +2390,10 @@ async function enableGyro() {
     isGyroActive = true;
     targetTilt = { x: 0, y: 0.9 };
     currentTilt = { x: 0, y: 0.9 };
+    lastBeta = null;
+    lastGamma = null;
+    lastOrientTime = 0;
+    lastMotionSample = null;
     toggleGyro.classList.add('active');
     toggleGyro.title = 'Modo actual: Pintar (clic para cambiar a Romper)';
     toggleGyro.setAttribute('aria-label', 'Modo actual: Pintar');
@@ -2032,6 +2429,10 @@ async function enableGyro() {
 function disableGyro() {
   isGyroActive = false;
   isVirtualTilting = false;
+  lastBeta = null;
+  lastGamma = null;
+  lastOrientTime = 0;
+  lastMotionSample = null;
   relaxChallenge.active = false;
   relaxChallenge.state = 'idle';
   window.removeEventListener('deviceorientation', handleOrientation, true);
@@ -2120,8 +2521,14 @@ function renderHomeRanking(gameMode = homeRankingGame, romperLevel = homeRanking
   }
 
   const key = gameMode === 'romper' ? romperLevel : gameMode;
-  const list = loadRanking(key);
-  renderRankingList(homeRankingList, homeRankingEmpty, list, null, gameMode);
+  loadAndRenderRanking({
+    listEl: homeRankingList,
+    emptyEl: homeRankingEmpty,
+    emptyText: 'Sin puntuaciones aún en este modo',
+    level: key,
+    mode: gameMode,
+    tokenState: homeRankingToken,
+  });
 }
 
 function openHomeRankingsModal() {
@@ -2297,7 +2704,10 @@ function showMathQuestion() {
         if (btnMathBack) btnMathBack.hidden = true;
         if (mathRankingBox) mathRankingBox.hidden = true;
         if (formMathScore) {
+          pendingMathAvatar = null;
+          clearFormError(mathSaveError);
           formMathScore.hidden = false;
+          selfieManager.start(mathSelfieSlot);
           if (inputMathPlayerName) {
             inputMathPlayerName.value = '';
             setTimeout(() => inputMathPlayerName.focus(), 60);
@@ -2315,6 +2725,9 @@ function showMathQuestion() {
 }
 
 function startMathChallenge() {
+  selfieManager.stop();
+  pendingMathAvatar = null;
+  clearFormError(mathSaveError);
   mathRound = 0;
   mathScore = 0;
   mathLastElapsed = 0;
@@ -2326,25 +2739,68 @@ function startMathChallenge() {
   showMathQuestion();
 }
 
-function showMathRanking(highlightId = null) {
+function showMathRanking(highlightId = null, preloadedList = null) {
+  selfieManager.stop();
+  pendingMathAvatar = null;
+  clearFormError(mathSaveError);
   if (formMathScore) formMathScore.hidden = true;
-  renderRankingList(mathRankingList, mathRankingEmpty, loadRanking('mates'), highlightId, 'mates');
   if (mathRankingBox) mathRankingBox.hidden = false;
   if (btnMathBack) btnMathBack.hidden = false;
   mathFinish.hidden = false;
+  if (preloadedList) {
+    if (mathRankingEmpty) mathRankingEmpty.textContent = 'Sin puntuaciones aún en Mates';
+    renderRankingList(mathRankingList, mathRankingEmpty, preloadedList, highlightId, 'mates');
+    return;
+  }
+  loadAndRenderRanking({
+    listEl: mathRankingList,
+    emptyEl: mathRankingEmpty,
+    emptyText: 'Sin puntuaciones aún en Mates',
+    level: 'mates',
+    mode: 'mates',
+    highlightId,
+    tokenState: mathRankingToken,
+  });
 }
 
-formMathScore?.addEventListener('submit', (e) => {
+formMathScore?.addEventListener('submit', async (e) => {
   e.preventDefault();
   const name = inputMathPlayerName?.value.trim().toUpperCase();
   if (!name) return;
-  const entry = { id: `s-${Date.now()}`, name, score: mathScore, time: mathLastElapsed };
-  const trimmed = saveRankingEntry('mates', entry);
-  if (formMathScore) formMathScore.hidden = true;
-  renderRankingList(mathRankingList, mathRankingEmpty, trimmed, entry.id, 'mates');
-  if (mathRankingBox) mathRankingBox.hidden = false;
-  if (btnMathBack) btnMathBack.hidden = false;
-  mathFinish.hidden = false;
+
+  clearFormError(mathSaveError);
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    showFormError(mathSaveError, 'No puedo guardar sin conexión!');
+    return;
+  }
+
+  if (!pendingMathAvatar) {
+    pendingMathAvatar = selfieManager.capture();
+  }
+
+  const submitBtn = formMathScore.querySelector('button[type="submit"]');
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Guardando...';
+  }
+
+  try {
+    const { id, list } = await saveRankingEntry('mates', {
+      name,
+      score: mathScore,
+      time: mathLastElapsed,
+      avatar: pendingMathAvatar,
+    });
+    showMathRanking(id, list);
+  } catch (err) {
+    console.warn('Error al guardar en Firestore (Mates):', err);
+    showFormError(mathSaveError, 'No puedo guardar sin conexión!');
+  } finally {
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Guardar';
+    }
+  }
 });
 
 btnMathSkipScore?.addEventListener('click', () => {
@@ -2359,6 +2815,9 @@ document.getElementById('btn-choose-math')?.addEventListener('click', () => {
 mathNext?.addEventListener('click', showMathQuestion);
 mathFinish?.addEventListener('click', startMathChallenge);
 btnMathBack?.addEventListener('click', () => {
+  selfieManager.stop();
+  pendingMathAvatar = null;
+  clearFormError(mathSaveError);
   soundManager.stopMathClock();
   mathModal?.setAttribute('hidden', '');
   modalSelectMode?.removeAttribute('hidden');

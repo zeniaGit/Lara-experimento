@@ -1,0 +1,107 @@
+rules_version = '2';
+
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Database: (default) (Cloud Firestore Standard Edition, project: lara-experimento)
+// Auth Model: Unauthenticated public kids/family browser game (no Firebase Auth).
+//
+// Collection: rankings/{mode}/entries/{entryId}
+//   Allowed {mode} values: '1', '2', '3', '4', 'pintar', 'mates'
+//   Document ID ({entryId}): Auto-generated or client-generated entry ID
+//   Fields (immutable after creation):
+//     - name: string (required, length 1..10, non-blank) - Player display name
+//     - score: number (required, 0..1000000; 0..10 when mode == 'mates') - Final score
+//     - time: number (required, 0..86400) - Elapsed seconds
+//     - createdAt: timestamp (required, must equal request.time) - Server timestamp
+//     - avatar: string (optional, length <= 30000, regex ^data:image/jpeg;base64,[A-Za-z0-9+/=]+$) - Optional JPEG selfie data URL
+//
+// ===============================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    // Validate allowed ranking mode collection ID
+    function isValidMode(mode) {
+      return mode in ['1', '2', '3', '4', 'pintar', 'mates'];
+    }
+
+    // Validate required fields exist
+    function hasRequiredFields(data, fields) {
+      return data.keys().hasAll(fields);
+    }
+
+    // Validate document contains only allowed fields
+    function hasOnlyAllowedFields(data, fields) {
+      return data.keys().hasOnly(fields);
+    }
+
+    // Validate string length bounds (and non-whitespace-only)
+    function validStringLength(value, minLen, maxLen) {
+      return value is string &&
+             value.size() >= minLen &&
+             value.size() <= maxLen &&
+             value.trim().size() >= minLen;
+    }
+
+    // Validate optional JPEG base64 selfie data URL
+    function isValidAvatar(data) {
+      return !('avatar' in data) ||
+             (data.avatar is string &&
+              data.avatar.size() <= 30000 &&
+              data.avatar.matches('^data:image/jpeg;base64,[A-Za-z0-9+/=]+$'));
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidRankingEntry(data, mode) {
+      return hasOnlyAllowedFields(data, ['name', 'score', 'time', 'createdAt', 'avatar']) &&
+             hasRequiredFields(data, ['name', 'score', 'time', 'createdAt']) &&
+             validStringLength(data.name, 1, 10) &&
+             data.score is number &&
+             data.score >= 0 &&
+             data.score <= 1000000 &&
+             (mode != 'mates' || data.score <= 10) &&
+             data.time is number &&
+             data.time >= 0 &&
+             data.time <= 86400 &&
+             data.createdAt is timestamp &&
+             data.createdAt == request.time &&
+             isValidAvatar(data);
+    }
+
+    // ===============================================================
+    // Collection Rules
+    // ===============================================================
+
+    match /rankings/{mode}/entries/{entryId} {
+      // Allow single-document reads for valid modes
+      allow get: if isValidMode(mode);
+
+      // Allow bounded collection queries (up to 20 entries) for valid modes
+      allow list: if isValidMode(mode) &&
+                     request.query.limit != null &&
+                     request.query.limit >= 1 &&
+                     request.query.limit <= 20;
+
+      // Allow creating valid, strictly typed ranking entries
+      allow create: if isValidMode(mode) &&
+                       isValidRankingEntry(request.resource.data, mode);
+
+      // Scores are immutable from clients
+      allow update, delete: if false;
+    }
+
+    // Default deny for all other paths
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

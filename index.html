@@ -98,6 +98,7 @@
         </div>
         <p id="go-summary" class="go-summary"></p>
         <form id="form-score" class="modal-form">
+          <div id="score-selfie-slot" class="selfie-slot"></div>
           <input
             type="text"
             id="input-player-name"
@@ -107,6 +108,7 @@
             autocomplete="off"
             required
           />
+          <p id="score-save-error" class="form-error" role="alert" hidden></p>
           <div class="modal-actions">
             <button type="button" id="btn-skip-score" class="modal-btn secondary">Cancelar</button>
             <button type="submit" class="modal-btn primary">Guardar</button>
@@ -202,6 +204,7 @@
         <div id="math-answers" class="math-answers"></div>
         <p id="math-feedback" class="math-feedback" aria-live="polite"></p>
         <form id="form-math-score" class="modal-form" hidden>
+          <div id="math-selfie-slot" class="selfie-slot"></div>
           <input
             type="text"
             id="input-math-player-name"
@@ -212,6 +215,7 @@
             aria-label="Tu nombre"
             required
           />
+          <p id="math-save-error" class="form-error" role="alert" hidden></p>
           <div class="modal-actions">
             <button type="button" id="btn-math-skip-score" class="modal-btn secondary">Cancelar</button>
             <button type="submit" class="modal-btn primary">Guardar</button>
