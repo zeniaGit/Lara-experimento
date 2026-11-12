@@ -995,4 +995,65 @@ html, body {
   border-radius: 20px;
 }
 
+/* Miniatura Donut Ilusión Óptica en Inicio */
+.illusion-mini-container {
+  margin-top: 18px;
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.illusion-mini-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.illusion-mini-badge {
+  font-family: var(--font-ui);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 2px 8px;
+  background: rgba(102, 252, 241, 0.12);
+  color: #66fcf1;
+  border-radius: 6px;
+  border: 1px solid rgba(102, 252, 241, 0.25);
+}
+
+.illusion-mini-question {
+  font-family: var(--font-ui);
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.illusion-donut-canvas {
+  width: 140px;
+  height: 140px;
+  display: block;
+}
+
+.illusion-mini-legend {
+  font-family: var(--font-ui);
+  font-size: 0.74rem;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.58);
+  max-width: 420px;
+  margin: 0;
+  text-align: center;
+}
+
+.illusion-mini-legend strong {
+  color: rgba(255, 255, 255, 0.88);
+}
+
+
 

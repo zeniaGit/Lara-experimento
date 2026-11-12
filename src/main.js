@@ -11,6 +11,7 @@ import {
 import { db } from './firebase.js';
 import { soundManager } from './audioManager.js';
 import { inject as injectVercelAnalytics } from '@vercel/analytics';
+import { initIllusionDonut } from './illusionDonut.js';
 import labubuUrl from './assets/labubu.png';
 
 const labubuImg = new Image();
@@ -3197,3 +3198,4 @@ window.addEventListener('resize', () => {
 // Inicio
 startFallingSequence();
 render();
+initIllusionDonut();
