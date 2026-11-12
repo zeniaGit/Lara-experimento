@@ -75,18 +75,32 @@ const engine = Engine.create({
 });
 const world = engine.world;
 
+const hudHeader = document.querySelector('.hud-header');
+
 // Estado de la línea elástica del suelo (Espacio-Tiempo)
 let floorY = height * 0.9;
 let lineNodes = [];
 const leftDeltas = new Float32Array(CONFIG.linePoints);
 const rightDeltas = new Float32Array(CONFIG.linePoints);
 
+function getPlayBounds() {
+  const headerRect = hudHeader ? hudHeader.getBoundingClientRect() : null;
+  const headerBottom = headerRect && headerRect.height > 0 ? Math.ceil(headerRect.bottom) : 76;
+  const wallPad = width <= 640 ? 10 : 18;
+  const left = wallPad;
+  const right = width - wallPad;
+  const top = Math.max(64, headerBottom + 8);
+  const bottom = floorY;
+  return { left, right, top, bottom, width: Math.max(200, right - left), wallPad };
+}
+
 function initFloorMesh() {
   floorY = height * 0.9;
+  const bounds = getPlayBounds();
   lineNodes = [];
   for (let i = 0; i < CONFIG.linePoints; i++) {
     lineNodes.push({
-      x: (width / (CONFIG.linePoints - 1)) * i,
+      x: bounds.left + (bounds.width / (CONFIG.linePoints - 1)) * i,
       y: floorY,
       targetY: floorY,
       vy: 0,
@@ -96,13 +110,14 @@ function initFloorMesh() {
 initFloorMesh();
 
 // Suelo de seguridad invisible muy bajo (solo como red de rescate)
+const initialBounds = getPlayBounds();
 let floorBody = Bodies.rectangle(width / 2, height + 150, width * 2, 50, {
   isStatic: true,
   restitution: 0.1,
   friction: 0.8,
 });
-let leftWall = Bodies.rectangle(-20, height / 2, 40, height * 2, { isStatic: true });
-let rightWall = Bodies.rectangle(width + 20, height / 2, 40, height * 2, { isStatic: true });
+let leftWall = Bodies.rectangle(initialBounds.left - 20, height / 2, 40, height * 2, { isStatic: true });
+let rightWall = Bodies.rectangle(initialBounds.right + 20, height / 2, 40, height * 2, { isStatic: true });
 World.add(world, [floorBody, leftWall, rightWall]);
 
 let letterBodies = [];
@@ -133,9 +148,10 @@ function initPentagonPoints(randomize = false) {
     pentagonRotationAngle = Math.random() * Math.PI * 2;
   }
   pentagonNodes = [];
-  const centerX = width / 2;
-  const centerY = height * 0.48;
-  const radius = Math.min(width, height) * 0.27;
+  const bounds = getPlayBounds();
+  const centerX = (bounds.left + bounds.right) / 2;
+  const centerY = bounds.top + (bounds.bottom - bounds.top) * 0.48;
+  const radius = Math.min(bounds.width, bounds.bottom - bounds.top) * 0.28;
 
   for (let i = 0; i < 5; i++) {
     const angle = -Math.PI / 2 + pentagonRotationAngle + (i * 2 * Math.PI) / 5;
@@ -207,9 +223,11 @@ function getLetterLayout() {
 
 // Spawner de Letras
 function spawnLetter(char, startX, size) {
-  const startY = isGyroActive ? -size : getBricksBottom() + size / 2 + 32;
+  const bounds = getPlayBounds();
+  const startY = isGyroActive ? bounds.top + size / 2 + 12 : getBricksBottom() + size / 2 + 32;
+  const clampedX = Math.max(bounds.left + size * 0.45, Math.min(bounds.right - size * 0.45, startX));
 
-  const body = Bodies.rectangle(startX, startY, size * 0.85, size, {
+  const body = Bodies.rectangle(clampedX, startY, size * 0.85, size, {
     restitution: 0.28,
     friction: 0.5,
     density: 0.003,
@@ -441,17 +459,20 @@ function renderRankingList(listEl, emptyEl, list, highlightId = null, mode = nul
 }
 
 function getBricksTop() {
-  return width <= 640 ? 76 : 76;
+  return getPlayBounds().top + 10;
 }
 
 function getBrickGeometry() {
+  const bounds = getPlayBounds();
+  const innerPad = 8;
+  const usableWidth = Math.max(160, bounds.width - innerPad * 2);
   const gap = 5;
   const targetW = width <= 640 ? 40 : 60;
-  const n = Math.max(4, Math.floor((width - 20 + gap) / (targetW + gap)));
+  const n = Math.max(4, Math.floor((usableWidth + gap) / (targetW + gap)));
   const rows = Math.min(4, Math.max(1, wordsList.filter((w) => w.active).length));
-  const bw = Math.min(targetW * 1.3, (width - 20 - (n - 1) * gap) / n);
+  const bw = Math.min(targetW * 1.3, (usableWidth - (n - 1) * gap) / n);
   const bh = bw * (rows >= 4 ? 0.44 : (rows >= 3 ? 0.48 : 0.54));
-  const startX = (width - (n * bw + (n - 1) * gap)) / 2 + bw / 2;
+  const startX = bounds.left + (bounds.width - (n * bw + (n - 1) * gap)) / 2 + bw / 2;
   const y = getBricksTop() + bh / 2;
   return { n, rows, gap, bw, bh, startX, y };
 }
@@ -632,6 +653,7 @@ function updateSpecialBrick(dt, now) {
     const letters = [...new Set(getLetterLayout().map((i) => i.char))];
     if (letters.length > 0) {
       const g = getBrickGeometry();
+      const bounds = getPlayBounds();
       const char = letters[Math.floor(Math.random() * letters.length)];
       const w = g.bw * 1.15;
       const h = g.bh * 1.05;
@@ -642,7 +664,7 @@ function updateSpecialBrick(dt, now) {
 
       specialBrick = {
         char,
-        x: fromLeft ? w / 2 + 10 : width - w / 2 - 10,
+        x: fromLeft ? bounds.left + w / 2 + 8 : bounds.right - w / 2 - 8,
         y,
         w,
         h,
@@ -665,8 +687,9 @@ function updateSpecialBrick(dt, now) {
     }
 
     specialBrick.x += specialBrick.vx * (dt / 16.6);
-    const minX = specialBrick.w / 2 + 10;
-    const maxX = width - specialBrick.w / 2 - 10;
+    const bounds = getPlayBounds();
+    const minX = bounds.left + specialBrick.w / 2 + 8;
+    const maxX = bounds.right - specialBrick.w / 2 - 8;
     if (specialBrick.x <= minX) {
       specialBrick.x = minX;
       specialBrick.vx = Math.abs(specialBrick.vx);
@@ -1534,6 +1557,7 @@ function startFallingSequence() {
 
 // Mantener las letras siempre dentro del espacio visual de juego (rebote elástico de caja en modo relax)
 function containLetters() {
+  const bounds = getPlayBounds();
   const heightScale = Math.max(1, height / 650);
   const maxSpeed = isGyroActive ? 42 : Math.round(28 * heightScale);
   const wallBounce = isGyroActive ? 0.78 : 0.5;
@@ -1549,20 +1573,20 @@ function containLetters() {
     let moved = false;
     let hitSpeed = 0;
 
-    if (x < half) {
-      x = half;
+    if (x < bounds.left + half) {
+      x = bounds.left + half;
       hitSpeed = Math.abs(vx);
       vx = hitSpeed * wallBounce;
       moved = true;
-    } else if (x > width - half) {
-      x = width - half;
+    } else if (x > bounds.right - half) {
+      x = bounds.right - half;
       hitSpeed = Math.abs(vx);
       vx = -hitSpeed * wallBounce;
       moved = true;
     }
 
-    if (y < half) {
-      y = half;
+    if (y < bounds.top + half) {
+      y = bounds.top + half;
       hitSpeed = Math.max(hitSpeed, Math.abs(vy));
       vy = hitSpeed * wallBounce;
       moved = true;
@@ -1597,7 +1621,8 @@ function containLetters() {
 
 // Detección e interacción elástica firme (Solver de impacto & contacto estricto)
 function updateTrampolinePhysics() {
-  const lineSpacing = width / (CONFIG.linePoints - 1);
+  const bounds = getPlayBounds();
+  const lineSpacing = bounds.width / (CONFIG.linePoints - 1);
 
   for (let body of letterBodies) {
     if (body === draggedBody) continue;
@@ -1607,13 +1632,13 @@ function updateTrampolinePhysics() {
     const letterFootY = body.position.y + baseContactRadius;
     const bodyX = body.position.x;
     if (!Number.isFinite(bodyX) || !Number.isFinite(body.position.y)) {
-      Body.setPosition(body, { x: width / 2, y: 120 });
+      Body.setPosition(body, { x: (bounds.left + bounds.right) / 2, y: bounds.top + 80 });
       Body.setVelocity(body, { x: 0, y: 0 });
       continue;
     }
 
     const nodeIndex = Math.min(
-      Math.max(0, Math.round(bodyX / lineSpacing) || 0),
+      Math.max(0, Math.round((bodyX - bounds.left) / lineSpacing) || 0),
       lineNodes.length - 1
     );
     const node = lineNodes[nodeIndex];
@@ -1667,12 +1692,12 @@ function updateTrampolinePhysics() {
       }
     }
 
-    // Límite superior: evitar desbordamiento
+    // Límite superior: evitar desbordamiento sobre el techo del enmarcado
     const topY = body.position.y - baseContactRadius;
-    if (topY <= 0 && body.hasImpacted) {
+    if (topY <= bounds.top && body.hasImpacted) {
       Body.setPosition(body, {
         x: body.position.x,
-        y: baseContactRadius,
+        y: bounds.top + baseContactRadius,
       });
       if (body.velocity.y < 0) {
         Body.setVelocity(body, {
@@ -1680,7 +1705,7 @@ function updateTrampolinePhysics() {
           y: -body.velocity.y * 0.5,
         });
       }
-    } else if (body.position.y > 50) {
+    } else if (body.position.y > bounds.top + 20) {
       body.hasImpacted = true;
     }
   }
@@ -1780,30 +1805,31 @@ function render(currentTime = performance.now()) {
 
     // Limpiar Canvas
     ctx.clearRect(0, 0, width, height);
+    const bounds = getPlayBounds();
 
-    // 1. Dibujar Cuadrícula de Fondo
+    // 1. Dibujar Cuadrícula de Fondo dentro del área enmarcada
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
     ctx.lineWidth = 1;
     const gridStep = 60;
-    for (let x = 0; x < width; x += gridStep) {
+    for (let x = bounds.left; x < bounds.right; x += gridStep) {
       ctx.beginPath();
-      ctx.moveTo(x, 0);
+      ctx.moveTo(x, bounds.top);
       ctx.lineTo(x, height);
       ctx.stroke();
     }
-    for (let y = 0; y < height; y += gridStep) {
+    for (let y = bounds.top; y < height; y += gridStep) {
       ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(width, y);
+      ctx.moveTo(bounds.left, y);
+      ctx.lineTo(bounds.right, y);
       ctx.stroke();
     }
 
     // 1.5. Bosquejo Minimalista de Labubu (fondo detrás de las bolitas de colores)
-    drawLabubuSketch(ctx, width / 2, height * 0.48);
+    drawLabubuSketch(ctx, (bounds.left + bounds.right) / 2, bounds.top + (bounds.bottom - bounds.top) * 0.48);
 
     // 2. Dibujar Suelo Deformable (Espacio-Tiempo)
     ctx.beginPath();
-    ctx.moveTo(0, height);
+    ctx.moveTo(bounds.left, height);
     ctx.lineTo(lineNodes[0].x, lineNodes[0].y);
     for (let i = 1; i < lineNodes.length; i++) {
       const prev = lineNodes[i - 1];
@@ -1813,7 +1839,7 @@ function render(currentTime = performance.now()) {
       ctx.quadraticCurveTo(prev.x, prev.y, mx, my);
     }
     ctx.lineTo(lineNodes[lineNodes.length - 1].x, lineNodes[lineNodes.length - 1].y);
-    ctx.lineTo(width, height);
+    ctx.lineTo(bounds.right, height);
     ctx.closePath();
 
     const grad = ctx.createLinearGradient(0, floorY, 0, height);
@@ -1837,6 +1863,20 @@ function render(currentTime = performance.now()) {
     ctx.lineWidth = 2.5;
     ctx.stroke();
     ctx.shadowBlur = 0;
+
+    // 2.5. Enmarcado visible del área de juego (paredes laterales y techo)
+    ctx.save();
+    ctx.strokeStyle = 'rgba(102, 252, 241, 0.32)';
+    ctx.shadowColor = 'rgba(102, 252, 241, 0.25)';
+    ctx.shadowBlur = 8;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(bounds.left, lineNodes[0].y);
+    ctx.lineTo(bounds.left, bounds.top);
+    ctx.lineTo(bounds.right, bounds.top);
+    ctx.lineTo(bounds.right, lineNodes[lineNodes.length - 1].y);
+    ctx.stroke();
+    ctx.restore();
 
     // 3. Dibujar Puntos de Color en Pentágono (~3.2px diámetro)
     for (let pt of pentagonNodes) {
@@ -2018,9 +2058,12 @@ function onPointerMove(e) {
       return;
     }
 
-    const targetX = Math.max(30, Math.min(width - 30, rawX));
+    const bounds = getPlayBounds();
+    const targetX = Math.max(bounds.left + 30, Math.min(bounds.right - 30, rawX));
     const glyphTop = -getGlyphMask(draggedBody.char, draggedBody.size).top;
-    const minY = (!isGyroActive && bricks.some((b) => b.alive)) ? getBricksBottom() + glyphTop + 3 : halfH;
+    const minY = (!isGyroActive && bricks.some((b) => b.alive))
+      ? getBricksBottom() + glyphTop + 3
+      : bounds.top + halfH;
     const targetY = Math.max(minY, Math.min(height - halfH, rawY));
 
     const vx = (targetX - draggedBody.position.x) * 0.45;
@@ -2281,7 +2324,7 @@ function drawRelaxChallengeHUD(ctx) {
   const elapsed = relaxChallenge.state === 'playing' ? Math.max(0, (now - relaxChallenge.stepStartTime) / 1000) : 0;
 
   ctx.save();
-  const hudY = Math.max(105, height * 0.13);
+  const hudY = getPlayBounds().top + 18;
 
   const col = relaxChallenge.targetColor;
   const colHex = col ? col.color : '#66fcf1';
@@ -3142,10 +3185,12 @@ document.getElementById('btn-replay').addEventListener('click', () => {
 window.addEventListener('resize', () => {
   width = canvas.width = window.innerWidth;
   height = canvas.height = window.innerHeight;
+  const bounds = getPlayBounds();
   initFloorMesh();
   initPentagonPoints(false);
   Body.setPosition(floorBody, { x: width / 2, y: height + 150 });
-  Body.setPosition(rightWall, { x: width + 20, y: height / 2 });
+  Body.setPosition(leftWall, { x: bounds.left - 20, y: height / 2 });
+  Body.setPosition(rightWall, { x: bounds.right + 20, y: height / 2 });
   relayoutBricks();
 });
 
