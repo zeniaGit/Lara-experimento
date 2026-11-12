@@ -1005,12 +1005,17 @@ const selfieManager = (() => {
   const workCtx = workCanvas.getContext('2d', { willReadFrequently: true });
   const lumBuffer = new Float32Array(WORK_SIZE * WORK_SIZE);
 
+  const savedImg = document.createElement('img');
+  savedImg.className = 'selfie-saved-img';
+  savedImg.alt = 'Avatar del jugador';
+  savedImg.hidden = true;
+
   const fallbackIcon = document.createElement('span');
   fallbackIcon.className = 'selfie-fallback-icon';
   fallbackIcon.setAttribute('aria-hidden', 'true');
   fallbackIcon.textContent = '🎨';
 
-  frame.append(video, previewCanvas, fallbackIcon);
+  frame.append(video, previewCanvas, savedImg, fallbackIcon);
 
   const meta = document.createElement('div');
   meta.className = 'selfie-meta';
@@ -1031,6 +1036,8 @@ const selfieManager = (() => {
   let skipped = false;
   let requestToken = 0;
   let previewTimer = null;
+  let onSwitchHandler = null;
+  let savedMode = false;
 
   function renderCartoonFrame() {
     if (!workCtx || !previewCtx || video.readyState < 2 || video.videoWidth <= 0 || video.videoHeight <= 0) {
@@ -1120,6 +1127,8 @@ const selfieManager = (() => {
     }
     video.srcObject = null;
     previewCanvas.hidden = true;
+    savedImg.hidden = true;
+    savedImg.removeAttribute('src');
     fallbackIcon.hidden = false;
   }
 
@@ -1131,6 +1140,8 @@ const selfieManager = (() => {
 
   async function requestCamera(slotEl) {
     if (!slotEl) return;
+    savedMode = false;
+    onSwitchHandler = null;
     currentSlot = slotEl;
     if (wrap.parentElement !== slotEl) {
       slotEl.replaceChildren(wrap);
@@ -1171,7 +1182,37 @@ const selfieManager = (() => {
     }
   }
 
+  function showSaved(slotEl, profile, onSwitch) {
+    if (!slotEl) return;
+    requestToken += 1;
+    stopStream();
+    savedMode = true;
+    skipped = false;
+    onSwitchHandler = onSwitch || null;
+    currentSlot = slotEl;
+    if (wrap.parentElement !== slotEl) {
+      slotEl.replaceChildren(wrap);
+    }
+    if (profile?.avatar) {
+      savedImg.src = profile.avatar;
+      savedImg.hidden = false;
+      fallbackIcon.hidden = true;
+    } else {
+      savedImg.hidden = true;
+      fallbackIcon.hidden = false;
+    }
+    setStatus(`Jugador habitual: ${profile?.name || ''}`, true, 'Cambiar jugador');
+  }
+
   toggleBtn.addEventListener('click', () => {
+    if (savedMode) {
+      savedMode = false;
+      const cb = onSwitchHandler;
+      onSwitchHandler = null;
+      if (cb) cb();
+      if (currentSlot) requestCamera(currentSlot);
+      return;
+    }
     if (!skipped && stream) {
       skipped = true;
       requestToken += 1;
@@ -1185,7 +1226,7 @@ const selfieManager = (() => {
   });
 
   function capture() {
-    if (skipped || !stream || !renderCartoonFrame()) {
+    if (savedMode || skipped || !stream || !renderCartoonFrame()) {
       return null;
     }
     return previewCanvas.toDataURL('image/jpeg', 0.72);
@@ -1199,10 +1240,12 @@ const selfieManager = (() => {
 
   function stop() {
     requestToken += 1;
+    savedMode = false;
+    onSwitchHandler = null;
     stopStream();
   }
 
-  return { start: requestCamera, capture, captureAndStop, stop };
+  return { start: requestCamera, showSaved, capture, captureAndStop, stop };
 })();
 
 const scoreSaveError = document.getElementById('score-save-error');
@@ -1213,6 +1256,56 @@ const mathRankingToken = { id: 0 };
 let pendingScoreAvatar = null;
 let pendingMathAvatar = null;
 let currentRankingTab = 1;
+
+const PLAYER_PROFILE_KEY = 'lara_player_profile_v1';
+
+function loadPlayerProfile() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(PLAYER_PROFILE_KEY));
+    if (!raw || typeof raw.name !== 'string') return null;
+    const name = raw.name.trim().toUpperCase().slice(0, 10);
+    if (!name) return null;
+    const avatar = typeof raw.avatar === 'string' && raw.avatar.startsWith('data:image/') ? raw.avatar : null;
+    return { name, avatar };
+  } catch {
+    return null;
+  }
+}
+
+function savePlayerProfile(profile) {
+  try {
+    if (!profile || !profile.name) return;
+    const payload = {
+      name: String(profile.name).trim().toUpperCase().slice(0, 10),
+      avatar: typeof profile.avatar === 'string' && profile.avatar.startsWith('data:image/') ? profile.avatar : null,
+    };
+    localStorage.setItem(PLAYER_PROFILE_KEY, JSON.stringify(payload));
+  } catch (e) {
+    console.warn('No se pudo guardar el perfil en el dispositivo:', e);
+  }
+}
+
+function preparePlayerScoreForm(slotEl, inputEl, setAvatar) {
+  const profile = loadPlayerProfile();
+  if (profile) {
+    setAvatar(profile.avatar);
+    if (inputEl) inputEl.value = profile.name;
+    selfieManager.showSaved(slotEl, profile, () => {
+      setAvatar(null);
+      if (inputEl) {
+        inputEl.value = '';
+        inputEl.focus();
+      }
+    });
+    return;
+  }
+  setAvatar(null);
+  if (inputEl) {
+    inputEl.value = '';
+    setTimeout(() => inputEl.focus(), 60);
+  }
+  selfieManager.start(slotEl);
+}
 
 function showFormError(errorEl, message) {
   if (!errorEl) return;
@@ -1244,14 +1337,11 @@ function openGameOverModal() {
     const t3 = relaxChallenge.stepTimes[2].toFixed(1);
     const totalT = (relaxChallenge.stepTimes[0] + relaxChallenge.stepTimes[1] + relaxChallenge.stepTimes[2]).toFixed(1);
     goSummary.textContent = `${relaxChallenge.score} puntos · Total ${totalT}s (Reto 1: ${t1}s · Reto 2: ${t2}s · Reto 3: ${t3}s)`;
-    pendingScoreAvatar = null;
     clearFormError(scoreSaveError);
     formScore.hidden = false;
     rankingBox.hidden = true;
-    inputPlayerName.value = '';
     modalGameOver.removeAttribute('hidden');
-    selfieManager.start(scoreSelfieSlot);
-    setTimeout(() => inputPlayerName.focus(), 60);
+    preparePlayerScoreForm(scoreSelfieSlot, inputPlayerName, (av) => { pendingScoreAvatar = av; });
     return;
   }
 
@@ -1260,14 +1350,11 @@ function openGameOverModal() {
   if (goTitle) goTitle.textContent = `¡NIVEL ${lvl} COMPLETADO!`;
   const extraSaved = game.bonusTimeSaved ? `, extra -${game.bonusTimeSaved}s` : '';
   goSummary.textContent = `${game.score} puntos · ${game.elapsed.toFixed(1)}s · ${game.throws} lanzamientos (bonus tiempo +${game.timeBonus || 0}${extraSaved}, bonus lanzamientos +${game.throwBonus || 0})`;
-  pendingScoreAvatar = null;
   clearFormError(scoreSaveError);
   formScore.hidden = false;
   rankingBox.hidden = true;
-  inputPlayerName.value = '';
   modalGameOver.removeAttribute('hidden');
-  selfieManager.start(scoreSelfieSlot);
-  setTimeout(() => inputPlayerName.focus(), 60);
+  preparePlayerScoreForm(scoreSelfieSlot, inputPlayerName, (av) => { pendingScoreAvatar = av; });
 }
 
 function closeGameOverModal() {
@@ -1343,6 +1430,7 @@ formScore.addEventListener('submit', async (e) => {
       time,
       avatar: pendingScoreAvatar,
     });
+    savePlayerProfile({ name, avatar: pendingScoreAvatar });
     selfieManager.stop();
     pendingScoreAvatar = null;
     formScore.hidden = true;
@@ -1869,13 +1957,20 @@ function onPointerDown(e) {
     return;
   }
 
+  const hitPad = 18;
   let touchedLetter = false;
   for (let body of letterBodies) {
-    if (Matter.Bounds.contains(body.bounds, pos)) {
+    const b = body.bounds;
+    if (
+      pos.x >= b.min.x - hitPad &&
+      pos.x <= b.max.x + hitPad &&
+      pos.y >= b.min.y - hitPad &&
+      pos.y <= b.max.y + hitPad
+    ) {
       draggedBody = body;
       dragStartY = pos.y;
       dragOffset = { x: pos.x - body.position.x, y: pos.y - body.position.y };
-      dragHistory = [{ x: pos.x, y: pos.y, t: performance.now() }];
+      dragHistory = [{ x: body.position.x, y: body.position.y, t: performance.now() }];
       Body.setVelocity(draggedBody, { x: 0, y: 0 });
       Body.setAngularVelocity(draggedBody, 0);
       if (e.cancelable && e.type && e.type.startsWith('touch')) {
@@ -1960,7 +2055,7 @@ function onPointerUp() {
     if (dragHistory.length >= 2) {
       const first = dragHistory[0];
       const last = dragHistory[dragHistory.length - 1];
-      const dt = Math.max(last.t - first.t, 16);
+      const dt = Math.max(last.t - first.t, 6);
       vx = ((last.x - first.x) / dt) * 16 * impulseMult;
       vy = ((last.y - first.y) / dt) * 16 * impulseMult;
     }
@@ -2278,6 +2373,24 @@ function applyTiltDeadzone(value, deadzone = 0.04) {
   return Math.abs(value) < deadzone ? 0 : value;
 }
 
+function getScreenOrientationAngle() {
+  const raw =
+    screen.orientation && typeof screen.orientation.angle === 'number'
+      ? screen.orientation.angle
+      : typeof window.orientation === 'number'
+        ? window.orientation
+        : 0;
+  return ((raw % 360) + 360) % 360;
+}
+
+function compensateTiltForScreenAngle(tx, ty) {
+  const angle = getScreenOrientationAngle();
+  if (angle === 90) return { x: -ty, y: tx };
+  if (angle === 180) return { x: -tx, y: -ty };
+  if (angle === 270) return { x: ty, y: -tx };
+  return { x: tx, y: ty };
+}
+
 function handleOrientation(e) {
   if (!isGyroActive) return;
   const gamma = e.gamma; // inclinación lateral (-90 a 90)
@@ -2294,8 +2407,9 @@ function handleOrientation(e) {
     : Math.sin(((beta - 32) * Math.PI) / 90) * 1.0;
   const ty = applyTiltDeadzone(Math.max(-1.0, Math.min(1.0, rawTy)));
 
-  targetTilt.x = tx;
-  targetTilt.y = ty;
+  const compensated = compensateTiltForScreenAngle(tx, ty);
+  targetTilt.x = compensated.x;
+  targetTilt.y = compensated.y;
 
   // Sacudida rápida por giro angular (umbral suavizado para evitar saltos al inclinar despacio)
   const now = performance.now();
@@ -2385,6 +2499,55 @@ Matter.Events.on(engine, 'collisionStart', (event) => {
   }
 });
 
+let shownRotateHint = false;
+
+async function lockPortraitForTablet() {
+  const isTouchDevice =
+    (typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(pointer: coarse)').matches) ||
+    'ontouchstart' in window;
+  if (!isTouchDevice) return;
+
+  try {
+    if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+      await document.documentElement.requestFullscreen();
+    }
+  } catch {
+    // Algunos navegadores (iPadOS Safari) no permiten fullscreen programático
+  }
+
+  let locked = false;
+  try {
+    if (screen.orientation && typeof screen.orientation.lock === 'function') {
+      await screen.orientation.lock('portrait');
+      locked = true;
+    }
+  } catch {
+    locked = false;
+  }
+
+  if (!locked && !shownRotateHint) {
+    shownRotateHint = true;
+    setTimeout(() => {
+      if (isGyroActive) {
+        showRelaxToast('Consejo en tablet', 'Activa el bloqueo de rotación de tu tablet para jugar mejor');
+      }
+    }, 3600);
+  }
+}
+
+function releasePortraitLock() {
+  try {
+    if (screen.orientation && typeof screen.orientation.unlock === 'function') {
+      screen.orientation.unlock();
+    }
+  } catch {}
+  try {
+    if (document.fullscreenElement && document.exitFullscreen) {
+      document.exitFullscreen().catch(() => {});
+    }
+  } catch {}
+}
+
 async function enableGyro() {
   const onGranted = () => {
     isGyroActive = true;
@@ -2410,6 +2573,7 @@ async function enableGyro() {
 
     updateFooterHint();
     startRelaxChallenge();
+    lockPortraitForTablet();
   };
 
   // En iOS 13+ solicitamos permiso de orientación
@@ -2426,7 +2590,7 @@ async function enableGyro() {
   }
 }
 
-function disableGyro() {
+function disableGyro({ restartSequence = true } = {}) {
   isGyroActive = false;
   isVirtualTilting = false;
   lastBeta = null;
@@ -2438,6 +2602,7 @@ function disableGyro() {
   window.removeEventListener('deviceorientation', handleOrientation, true);
   window.removeEventListener('devicemotion', handleMotion, true);
   window.removeEventListener('mousemove', handleDesktopMouseTilt, true);
+  releasePortraitLock();
   toggleGyro.classList.remove('active');
   toggleGyro.title = 'Modo actual: Romper (clic para cambiar a Pintar)';
   toggleGyro.setAttribute('aria-label', 'Modo actual: Romper');
@@ -2452,7 +2617,11 @@ function disableGyro() {
     b.isColorLocked = false;
   });
   updateFooterHint();
-  startGame(); // Restaura los ladrillos y el juego al salir del modo giroscopio
+  if (restartSequence) {
+    startFallingSequence();
+  } else {
+    startGame();
+  }
 }
 
 toggleGyro.addEventListener('click', (e) => {
@@ -2704,14 +2873,9 @@ function showMathQuestion() {
         if (btnMathBack) btnMathBack.hidden = true;
         if (mathRankingBox) mathRankingBox.hidden = true;
         if (formMathScore) {
-          pendingMathAvatar = null;
           clearFormError(mathSaveError);
           formMathScore.hidden = false;
-          selfieManager.start(mathSelfieSlot);
-          if (inputMathPlayerName) {
-            inputMathPlayerName.value = '';
-            setTimeout(() => inputMathPlayerName.focus(), 60);
-          }
+          preparePlayerScoreForm(mathSelfieSlot, inputMathPlayerName, (av) => { pendingMathAvatar = av; });
         } else {
           mathFinish.hidden = false;
           if (btnMathBack) btnMathBack.hidden = false;
@@ -2791,6 +2955,7 @@ formMathScore?.addEventListener('submit', async (e) => {
       time: mathLastElapsed,
       avatar: pendingMathAvatar,
     });
+    savePlayerProfile({ name, avatar: pendingMathAvatar });
     showMathRanking(id, list);
   } catch (err) {
     console.warn('Error al guardar en Firestore (Mates):', err);
@@ -2935,6 +3100,34 @@ if (formAddWord) {
 // Inicializar botones en cabecera
 renderWordButtons();
 if (import.meta.env.PROD) injectVercelAnalytics({ mode: 'production' });
+
+// Botón Salir al inicio
+const btnExitHome = document.getElementById('btn-exit-home');
+
+function exitToHome() {
+  clearDropTimeouts();
+  closeGameOverModal();
+  closeAddWordModal();
+  selfieManager.stop();
+  soundManager.stopMathClock();
+
+  if (isGyroActive) {
+    disableGyro({ restartSequence: false });
+  } else {
+    releasePortraitLock();
+  }
+
+  game.state = 'idle';
+  relaxChallenge.active = false;
+  relaxChallenge.state = 'idle';
+  if (mathModal) mathModal.setAttribute('hidden', '');
+  if (modalRankings) modalRankings.setAttribute('hidden', '');
+  if (modalSelectMode) modalSelectMode.removeAttribute('hidden');
+}
+
+if (btnExitHome) {
+  btnExitHome.addEventListener('click', exitToHome);
+}
 
 // Botón Replay
 document.getElementById('btn-replay').addEventListener('click', () => {

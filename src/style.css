@@ -138,6 +138,16 @@ html, body {
   margin-left: 2px;
 }
 
+.hud-controls-col {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  pointer-events: auto;
+  flex-shrink: 0;
+  z-index: 30;
+}
+
 .toggles-cluster {
   display: flex;
   align-items: center;
@@ -145,6 +155,14 @@ html, body {
   pointer-events: auto;
   flex-shrink: 0;
   z-index: 30;
+}
+
+.exit-home-btn {
+  font-family: var(--font-ui);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 4px 10px;
 }
 
 .toggle-btn {
@@ -301,11 +319,20 @@ html, body {
     align-items: center;
     gap: 4px;
   }
-  .toggles-cluster {
+  .hud-controls-col {
     order: 1;
+    width: 100%;
+    align-items: center;
+    gap: 5px;
+  }
+  .toggles-cluster {
     width: 100%;
     justify-content: center;
     gap: 5px;
+  }
+  .exit-home-btn {
+    font-size: 0.66rem;
+    padding: 3px 9px;
   }
   .brand-group {
     order: 2;
@@ -589,13 +616,16 @@ html, body {
   pointer-events: none;
 }
 
-.selfie-canvas {
+.selfie-canvas,
+.selfie-saved-img {
   width: 100%;
   height: 100%;
   display: block;
+  object-fit: cover;
 }
 
-.selfie-canvas[hidden] {
+.selfie-canvas[hidden],
+.selfie-saved-img[hidden] {
   display: none;
 }
 

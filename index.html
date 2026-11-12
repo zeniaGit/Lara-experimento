@@ -20,24 +20,33 @@
         </button>
         <span class="brand-tag-label">• PHYSICS</span>
       </div>
-      <div class="toggles-cluster">
-        <!-- Toggle Giroscopio -->
-        <button id="toggle-gyro" class="toggle-btn" aria-label="Toggle Giroscopio" title="Giroscopio">
+      <div class="hud-controls-col">
+        <div class="toggles-cluster">
+          <!-- Toggle Giroscopio -->
+          <button id="toggle-gyro" class="toggle-btn" aria-label="Toggle Giroscopio" title="Giroscopio">
+            <span class="icon">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/></svg>
+            </span>
+            <span class="toggle-switch"><span class="toggle-thumb"></span></span>
+          </button>
+
+
+
+          <!-- Botón de sonido: efectos / efectos + música / sin sonido -->
+          <button id="toggle-music" class="toggle-btn sound-btn" aria-label="Sonido" title="Sonido"></button>
+
+          <!-- Botón Replay compacto -->
+
+          <button id="btn-replay" class="toggle-btn icon-only" aria-label="Reiniciar caída" title="Reiniciar">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+          </button>
+        </div>
+
+        <button id="btn-exit-home" class="toggle-btn exit-home-btn" aria-label="Salir al inicio" title="Salir al inicio">
           <span class="icon">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/></svg>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
           </span>
-          <span class="toggle-switch"><span class="toggle-thumb"></span></span>
-        </button>
-
-
-
-        <!-- Botón de sonido: efectos / efectos + música / sin sonido -->
-        <button id="toggle-music" class="toggle-btn sound-btn" aria-label="Sonido" title="Sonido"></button>
-
-        <!-- Botón Replay compacto -->
-
-        <button id="btn-replay" class="toggle-btn icon-only" aria-label="Reiniciar caída" title="Reiniciar">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+          <span>Inicio</span>
         </button>
       </div>
     </header>
