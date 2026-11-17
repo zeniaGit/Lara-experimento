@@ -2139,6 +2139,7 @@ let lastMotionSample = null;
 let isVirtualTilting = false;
 let virtualTiltStart = { x: 0, y: 0 };
 let relaxToastTimeout = null;
+let relaxToastFrame = null;
 
 // RETO DE PINTAR EN MODO GIROSCOPIO (3 RETOS CONTRARRELOJ)
 let relaxChallenge = {
@@ -2155,6 +2156,18 @@ let relaxChallenge = {
   score: 0,
 };
 
+function hideRelaxToast() {
+  clearTimeout(relaxToastTimeout);
+  cancelAnimationFrame(relaxToastFrame);
+  relaxToastTimeout = null;
+  relaxToastFrame = null;
+
+  const popup = document.getElementById('relax-popup');
+  if (!popup) return;
+  popup.classList.remove('visible');
+  popup.hidden = true;
+}
+
 function showRelaxToast(title, desc) {
   const popup = document.getElementById('relax-popup');
   if (!popup) return;
@@ -2163,16 +2176,16 @@ function showRelaxToast(title, desc) {
   if (title && titleEl) titleEl.textContent = title;
   if (desc && descEl) descEl.textContent = desc;
 
-  if (relaxToastTimeout) clearTimeout(relaxToastTimeout);
+  clearTimeout(relaxToastTimeout);
+  cancelAnimationFrame(relaxToastFrame);
   popup.hidden = false;
-  requestAnimationFrame(() => {
+  relaxToastFrame = requestAnimationFrame(() => {
+    relaxToastFrame = null;
     popup.classList.add('visible');
   });
   relaxToastTimeout = setTimeout(() => {
     popup.classList.remove('visible');
-    setTimeout(() => {
-      popup.hidden = true;
-    }, 250);
+    relaxToastTimeout = setTimeout(hideRelaxToast, 250);
   }, 3500);
 }
 
@@ -2636,6 +2649,7 @@ async function enableGyro() {
 
 function disableGyro({ restartSequence = true } = {}) {
   isGyroActive = false;
+  hideRelaxToast();
   isVirtualTilting = false;
   lastBeta = null;
   lastGamma = null;
