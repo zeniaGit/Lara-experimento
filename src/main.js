@@ -12,7 +12,7 @@ import { db } from './firebase.js';
 import { soundManager } from './audioManager.js';
 import { inject as injectVercelAnalytics } from '@vercel/analytics';
 import { initIllusionDonut } from './illusionDonut.js';
-import labubuUrl from './assets/labubu.png';
+import labubuUrl from './assets/labubu-navidad.webp';
 
 const labubuImg = new Image();
 labubuImg.src = labubuUrl;
@@ -1759,11 +1759,11 @@ function updateFloorMesh(dt = 16.6) {
   }
 }
 
-// --- BOSQUEJO MINIMALISTA DE LABUBU (FONDO DESDE IMAGEN EN TRAZO BLANCO) ---
+// --- ILUSTRACIÓN DE LABUBU DE FONDO ---
 function drawLabubuSketch(ctx, cx, cy) {
   if (!isLabubuLoaded) return;
 
-  const aspectRatio = 704 / 940; // proporción de la ilustración
+  const aspectRatio = labubuImg.naturalWidth / labubuImg.naturalHeight;
   const maxH = Math.min(height * 0.60, 560);
   const maxW = Math.min(width * 0.86, 440);
 
@@ -1779,7 +1779,7 @@ function drawLabubuSketch(ctx, cx, cy) {
   const drawY = cy - drawH / 2;
 
   ctx.save();
-  ctx.globalAlpha = 0.28; // Trazo blanco nítido y elegante de fondo
+  ctx.globalAlpha = 0.28; // Mantiene la ilustración en segundo plano
   ctx.drawImage(labubuImg, drawX, drawY, drawW, drawH);
   ctx.restore();
 }
