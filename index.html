@@ -176,7 +176,7 @@
           <div class="mode-card mode-card-rankings">
             <div class="mode-card-icon">🏆</div>
             <h4>RANKINGS</h4>
-            <p>Consulta las mejores puntuaciones de Pintar, Romper y Mates.</p>
+            <p>Consulta las mejores puntuaciones de Pintar, Romper, Mates e Inglés.</p>
             <button type="button" id="btn-open-rankings" class="modal-btn primary mode-select-btn">Ver Rankings</button>
           </div>
         </div>
@@ -205,6 +205,7 @@
           <button type="button" role="tab" id="home-tab-pintar" class="rank-tab-btn" data-game="pintar" aria-selected="true" tabindex="0">🎨 PINTAR</button>
           <button type="button" role="tab" id="home-tab-romper" class="rank-tab-btn" data-game="romper" aria-selected="false" tabindex="-1">🧱 ROMPER</button>
           <button type="button" role="tab" id="home-tab-mates" class="rank-tab-btn" data-game="mates" aria-selected="false" tabindex="-1">➗ MATES</button>
+          <button type="button" role="tab" id="home-tab-ingles" class="rank-tab-btn" data-game="ingles" aria-selected="false" tabindex="-1">🔤 INGLÉS</button>
         </div>
         <div id="home-rankings-panel" class="ranking-panel" role="tabpanel" aria-labelledby="home-tab-pintar" tabindex="0">
           <div id="home-romper-levels" class="ranking-subtabs" role="group" aria-label="Niveles de Romper" hidden>
@@ -271,6 +272,11 @@
         </div>
         <div id="english-answers" class="math-answers"></div>
         <p id="english-feedback" class="math-feedback" aria-live="polite"></p>
+        <form id="english-score-form" class="modal-form" hidden>
+          <input id="english-player-name" class="modal-input" type="text" maxlength="10"
+            aria-label="Tu nombre para el ranking" placeholder="Tu nombre..." required />
+          <button type="submit" class="modal-btn primary">Guardar en el ranking</button>
+        </form>
         <div class="modal-actions math-actions">
           <button type="button" id="english-back" class="modal-btn secondary">Volver</button>
           <button type="button" id="english-next" class="modal-btn primary" hidden>Siguiente</button>
@@ -280,7 +286,6 @@
       </section>
     </div>
   </div>
-  <script type="module" src="./src/main.js"></script>
   <script type="module" src="./src/english.js"></script>
 </body>
 </html>

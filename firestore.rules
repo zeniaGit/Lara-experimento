@@ -8,11 +8,11 @@ rules_version = '2';
 // Auth Model: Unauthenticated public kids/family browser game (no Firebase Auth).
 //
 // Collection: rankings/{mode}/entries/{entryId}
-//   Allowed {mode} values: '1', '2', '3', '4', 'pintar', 'mates'
+//   Allowed {mode} values: '1', '2', '3', '4', 'pintar', 'mates', 'ingles'
 //   Document ID ({entryId}): Auto-generated or client-generated entry ID
 //   Fields (immutable after creation):
 //     - name: string (required, length 1..10, non-blank) - Player display name
-//     - score: number (required, 0..1000000; 0..10 when mode == 'mates') - Final score
+//     - score: number (required, 0..1000000; 0..10 for Mates and Inglés) - Final score
 //     - time: number (required, 0..86400) - Elapsed seconds
 //     - createdAt: timestamp (required, must equal request.time) - Server timestamp
 //     - avatar: string (optional, length <= 30000, regex ^data:image/jpeg;base64,[A-Za-z0-9+/=]+$) - Optional JPEG selfie data URL
@@ -28,7 +28,7 @@ service cloud.firestore {
 
     // Validate allowed ranking mode collection ID
     function isValidMode(mode) {
-      return mode in ['1', '2', '3', '4', 'pintar', 'mates'];
+      return mode in ['1', '2', '3', '4', 'pintar', 'mates', 'ingles'];
     }
 
     // Validate required fields exist
@@ -68,7 +68,7 @@ service cloud.firestore {
              data.score is number &&
              data.score >= 0 &&
              data.score <= 1000000 &&
-             (mode != 'mates' || data.score <= 10) &&
+             (!(mode in ['mates', 'ingles']) || data.score <= 10) &&
              data.time is number &&
              data.time >= 0 &&
              data.time <= 86400 &&

@@ -7,6 +7,15 @@
         { "fieldPath": "score", "order": "DESCENDING" },
         { "fieldPath": "time", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "entries",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "score", "order": "DESCENDING" },
+        { "fieldPath": "time", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": [
