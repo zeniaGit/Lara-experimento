@@ -167,6 +167,12 @@
             <p>Resuelve cuentas y pequeños retos de 2.º de Primaria. ¡Intenta superar tu propia marca!</p>
             <button type="button" id="btn-choose-math" class="modal-btn primary mode-select-btn">Jugar a Mates</button>
           </div>
+          <div class="mode-card">
+            <div class="mode-card-icon" aria-hidden="true">🔤</div>
+            <h4>INGLÉS CON LARA</h4>
+            <p>Escucha palabras, reconoce objetos y completa frases.</p>
+            <button type="button" id="btn-choose-english" class="modal-btn primary mode-select-btn">Jugar a Inglés</button>
+          </div>
           <div class="mode-card mode-card-rankings">
             <div class="mode-card-icon">🏆</div>
             <h4>RANKINGS</h4>
@@ -253,7 +259,28 @@
         </div>
       </section>
     </div>
+    <div id="modal-english-game" class="modal-backdrop" hidden>
+      <section class="modal-box math-game-box" role="dialog" aria-modal="true" aria-labelledby="english-title">
+        <div class="modal-header"><h3 id="english-title">INGLÉS CON LARA</h3></div>
+        <p id="english-progress" class="math-progress" tabindex="-1"></p>
+        <p id="english-question" class="math-question"></p>
+        <p id="english-clue" class="math-progress"></p>
+        <div id="english-audio" class="modal-actions">
+          <button type="button" id="english-listen" class="modal-btn secondary">Escuchar</button>
+          <button type="button" id="english-show-text" class="modal-btn secondary">Ver palabra</button>
+        </div>
+        <div id="english-answers" class="math-answers"></div>
+        <p id="english-feedback" class="math-feedback" aria-live="polite"></p>
+        <div class="modal-actions math-actions">
+          <button type="button" id="english-back" class="modal-btn secondary">Volver</button>
+          <button type="button" id="english-next" class="modal-btn primary" hidden>Siguiente</button>
+          <button type="button" id="english-review" class="modal-btn secondary" hidden>Practicar mis fallos</button>
+          <button type="button" id="english-replay" class="modal-btn primary" hidden>Volver a jugar</button>
+        </div>
+      </section>
+    </div>
   </div>
   <script type="module" src="./src/main.js"></script>
+  <script type="module" src="./src/english.js"></script>
 </body>
 </html>
