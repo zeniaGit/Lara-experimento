@@ -1,3 +1,5 @@
+import { saveRankingEntry } from './main.js';
+
 const ROUND_SIZE = 10;
 const DECK_KEY = 'lara_english_deck_v1';
 
@@ -95,6 +97,9 @@ const listenButton = element('english-listen');
 const nextButton = element('english-next');
 const replayButton = element('english-replay');
 const reviewButton = element('english-review');
+const scoreForm = element('english-score-form');
+const playerName = element('english-player-name');
+const saveButton = scoreForm.querySelector('button');
 
 let seenThisRound = new Set();
 let missed = [];
@@ -102,6 +107,9 @@ let review = null;
 let currentCard = null;
 let roundIndex = 0;
 let score = 0;
+let cardStartedAt = 0;
+let responseTime = 0;
+let result = null;
 
 const speech = window.speechSynthesis;
 let activeSpeech = null;
@@ -141,6 +149,7 @@ function speakWord() {
 }
 
 function showCard() {
+  scoreForm.hidden = true;
   const id = review ? review[roundIndex] : drawCard(seenThisRound);
   if (!review) seenThisRound.add(id);
   currentCard = cards.get(id);
@@ -177,6 +186,7 @@ function showCard() {
     else button.lang = 'en';
 
     button.addEventListener('click', () => {
+      if (!review) responseTime += performance.now() - cardStartedAt;
       for (const option of answers.children) {
         option.disabled = true;
         if (option.dataset.word === currentCard.answer) option.classList.add('correct');
@@ -197,6 +207,7 @@ function showCard() {
     });
     answers.append(button);
   }
+  cardStartedAt = performance.now();
   progress.focus();
 }
 
@@ -213,6 +224,15 @@ function finishRound() {
   answers.replaceChildren();
   reviewButton.hidden = wasReview || missed.length === 0;
   replayButton.hidden = false;
+  if (!wasReview) {
+    const time = Math.min(86400, Math.round(responseTime) / 1000);
+    result = { score, time, id: crypto.randomUUID() };
+    const misses = ROUND_SIZE - score;
+    clueText.textContent = `${misses} ${misses === 1 ? 'fallo' : 'fallos'} · ${time.toFixed(3).replace('.', ',')} s`;
+    playerName.value = '';
+    saveButton.disabled = false;
+    scoreForm.hidden = false;
+  }
   progress.focus();
 }
 
@@ -225,11 +245,14 @@ function startRound() {
   review = null;
   roundIndex = 0;
   score = 0;
+  responseTime = 0;
+  result = null;
   showCard();
 }
 
 function closeEnglish() {
   stopSpeech();
+  result = null;
   modal.hidden = true;
   menu.hidden = false;
   startButton.focus();
@@ -253,4 +276,30 @@ reviewButton.addEventListener('click', () => {
   review = [...missed];
   roundIndex = 0;
   showCard();
+});
+
+scoreForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const name = playerName.value.trim();
+  if (!name || !result || saveButton.disabled) {
+    playerName.focus();
+    return;
+  }
+
+  const submitting = result;
+  saveButton.disabled = true;
+  feedback.textContent = 'Guardando tu marca…';
+  try {
+    await saveRankingEntry('ingles', { ...submitting, name });
+    if (result === submitting && !review) {
+      scoreForm.hidden = true;
+      feedback.textContent = 'Marca guardada en el ranking de Inglés.';
+      replayButton.focus();
+    }
+  } catch {
+    if (result === submitting && !review) {
+      feedback.textContent = 'No se pudo guardar la marca. Puedes volver a intentarlo.';
+      saveButton.disabled = false;
+    }
+  }
 });

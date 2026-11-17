@@ -2,6 +2,8 @@ import Matter from 'matter-js';
 import {
   collection,
   addDoc,
+  doc,
+  runTransaction,
   getDocsFromServer,
   query,
   orderBy,
@@ -321,7 +323,7 @@ function showDifficultyToast() {
 
 function toRankingModeKey(level = getCurrentLevel()) {
   if (level === 'pintar' || level === 'relax') return 'pintar';
-  if (level === 'mates') return 'mates';
+  if (level === 'mates' || level === 'ingles') return level;
   return String(Math.min(4, Math.max(1, parseInt(level, 10) || 1)));
 }
 
@@ -340,22 +342,20 @@ function runWithNetworkTimeout(promise, timeoutMs = 8000) {
 
 async function loadRanking(level = getCurrentLevel()) {
   const modeKey = toRankingModeKey(level);
-  const q = query(
-    collection(db, 'rankings', modeKey, 'entries'),
-    orderBy('score', 'desc'),
-    orderBy('time', 'asc'),
-    limit(10)
-  );
+  const ordering = [orderBy('score', 'desc'), orderBy('time', 'asc')];
+  if (modeKey === 'ingles') ordering.push(orderBy('createdAt', 'asc'));
+  const q = query(collection(db, 'rankings', modeKey, 'entries'), ...ordering, limit(10));
   const snapshot = await runWithNetworkTimeout(getDocsFromServer(q));
   return snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
 }
 
-async function saveRankingEntry(level, entry) {
+export async function saveRankingEntry(level, entry) {
   const modeKey = toRankingModeKey(level);
   const cleanName = String(entry.name || '').trim().toUpperCase().slice(0, 10);
-  const maxScore = modeKey === 'mates' ? 10 : 1000000;
+  const maxScore = modeKey === 'mates' || modeKey === 'ingles' ? 10 : 1000000;
   const cleanScore = Math.max(0, Math.min(maxScore, Math.round(Number(entry.score) || 0)));
-  const cleanTime = Math.max(0, Math.min(86400, Number((Number(entry.time) || 0).toFixed(2))));
+  const decimals = modeKey === 'ingles' ? 3 : 2;
+  const cleanTime = Math.max(0, Math.min(86400, Number((Number(entry.time) || 0).toFixed(decimals))));
 
   const payload = {
     name: cleanName,
@@ -372,9 +372,17 @@ async function saveRankingEntry(level, entry) {
     payload.avatar = entry.avatar;
   }
 
-  const docRef = await runWithNetworkTimeout(
-    addDoc(collection(db, 'rankings', modeKey, 'entries'), payload)
-  );
+  const entries = collection(db, 'rankings', modeKey, 'entries');
+  if (modeKey === 'ingles') {
+    const entryRef = doc(entries, entry.id);
+    await runWithNetworkTimeout(runTransaction(db, async (transaction) => {
+      const saved = await transaction.get(entryRef);
+      if (!saved.exists()) transaction.set(entryRef, payload);
+    }));
+    return { id: entryRef.id };
+  }
+
+  const docRef = await runWithNetworkTimeout(addDoc(entries, payload));
   const list = await loadRanking(modeKey).catch(() => [{ id: docRef.id, ...payload }]);
   return { id: docRef.id, list };
 }
@@ -411,6 +419,11 @@ async function loadAndRenderRanking({
 }
 
 function formatRankingScore(entry, mode) {
+  if (mode === 'ingles') {
+    const misses = 10 - entry.score;
+    const time = entry.time.toFixed(3).replace('.', ',');
+    return `${misses} ${misses === 1 ? 'fallo' : 'fallos'} · ${time} s`;
+  }
   if (mode === 'mates') {
     const timeText = Number.isFinite(entry.time) ? ` · ${entry.time.toFixed(1)}s` : '';
     return `${entry.score}/10${timeText}`;
