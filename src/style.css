@@ -1057,3 +1057,21 @@ html, body {
 
 
 
+
+#modal-english-game .modal-box {
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+}
+
+#modal-english-game .modal-actions {
+  flex-wrap: wrap;
+}
+
+#english-audio {
+  justify-content: center;
+  margin: 0 0 16px;
+}
+
+#english-audio[hidden] {
+  display: none;
+}
