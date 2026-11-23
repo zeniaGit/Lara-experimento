@@ -14,6 +14,8 @@ import { db } from './firebase.js';
 import { soundManager } from './audioManager.js';
 import { inject as injectVercelAnalytics } from '@vercel/analytics';
 import { initIllusionDonut } from './illusionDonut.js';
+import { createCannonView } from './breakCannonView.js';
+import { rankingModeKey, scoreImpact, completionBonus } from './breakRules.js';
 import labubuUrl from './assets/labubu-navidad.webp';
 
 const labubuImg = new Image();
@@ -268,11 +270,6 @@ function perturbLine(impactX, force) {
 }
 
 // --- JUEGO TIPO ARKANOID: BLOQUES CON LETRA ---
-const POINTS_PER_BRICK = 100;
-const WRONG_HIT_PENALTY = 10;
-const SECONDS_PER_BRICK = 8;   // tiempo de referencia por bloque: bonus de 10 pts por segundo que sobre
-const MAX_THROWS_PER_BRICK = 2; // lanzamientos de referencia por bloque: bonus de 25 pts por cada uno que sobre
-const MIN_BREAK_SPEED = 2.5;
 
 // Niveles de dificultad según el número de nombres activos (1 a 4 filas)
 const LEVEL_CONFIG = {
@@ -289,7 +286,6 @@ function getCurrentLevel() {
 
 let bricks = [];
 let shards = [];
-let pendingBreaks = [];
 let game = { state: 'idle', level: 1, score: 0, startTime: 0, elapsed: 0, throws: 0, bonusTimeSaved: 0, lastRank: null };
 
 // Ladrillo especial multicolor móvil
@@ -322,9 +318,7 @@ function showDifficultyToast() {
 }
 
 function toRankingModeKey(level = getCurrentLevel()) {
-  if (level === 'pintar' || level === 'relax') return 'pintar';
-  if (level === 'mates' || level === 'ingles') return level;
-  return String(Math.min(4, Math.max(1, parseInt(level, 10) || 1)));
+  return rankingModeKey(level);
 }
 
 function runWithNetworkTimeout(promise, timeoutMs = 8000) {
@@ -482,10 +476,14 @@ function getBrickGeometry() {
   const usableWidth = Math.max(160, bounds.width - innerPad * 2);
   const gap = 5;
   const targetW = width <= 640 ? 40 : 60;
-  const n = Math.max(4, Math.floor((usableWidth + gap) / (targetW + gap)));
-  const rows = Math.min(4, Math.max(1, wordsList.filter((w) => w.active).length));
+  // Conservar columnas y filas al rotar: nunca regenerar una partida en curso.
+  const n = bricks.length ? Math.max(...bricks.map((b) => b.col)) + 1
+    : Math.max(4, Math.floor((usableWidth + gap) / (targetW + gap)));
+  const rows = bricks.length ? Math.max(...bricks.map((b) => b.row)) + 1
+    : Math.min(4, Math.max(1, wordsList.filter((w) => w.active).length));
   const bw = Math.min(targetW * 1.3, (usableWidth - (n - 1) * gap) / n);
-  const bh = bw * (rows >= 4 ? 0.44 : (rows >= 3 ? 0.48 : 0.54));
+  const bh = Math.min(bw * (rows >= 4 ? 0.44 : (rows >= 3 ? 0.48 : 0.54)),
+    Math.max(10, (height - bounds.top - 230) / rows - gap));
   const startX = bounds.left + (bounds.width - (n * bw + (n - 1) * gap)) / 2 + bw / 2;
   const y = getBricksTop() + bh / 2;
   return { n, rows, gap, bw, bh, startX, y };
@@ -514,7 +512,7 @@ function placeBrick(brick, g) {
 }
 
 function createBrickBody(brick, g) {
-  // Sin cuerpo físico: el impacto se calcula a nivel de píxel en processBrickHits()
+  // Sin cuerpo Matter.js: el cañón calcula impactos continuos sobre el rectángulo.
   placeBrick(brick, g);
 }
 
@@ -524,7 +522,6 @@ function buildBricks() {
   }
   bricks = [];
   shards = [];
-  pendingBreaks = [];
 
   const letters = [...new Set(getLetterLayout().map((i) => i.char))];
   const g = getBrickGeometry();
@@ -560,15 +557,18 @@ function startGame() {
   if (isGyroActive) {
     bricks = [];
     shards = [];
-    pendingBreaks = [];
     game = { state: 'idle', level: getCurrentLevel(), score: 0, startTime: 0, elapsed: 0, throws: 0, bonusTimeSaved: 0, lastRank: null };
     closeGameOverModal();
     return;
   }
+  document.body.classList.add('romper-cannon');
+  cannon.setEnabled(true);
   buildBricks();
   game = { state: 'playing', level: getCurrentLevel(), score: 0, startTime: performance.now(), elapsed: 0, throws: 0, bonusTimeSaved: 0, lastRank: null };
   nextSpecialSpawnTime = performance.now() + 15000 + Math.random() * 5000;
   closeGameOverModal();
+  measureCannonScene();
+  cannon.reset();
 }
 
 // --- IMPACTO PRECISO: máscara de píxeles reales de cada letra ---
@@ -719,103 +719,28 @@ function updateSpecialBrick(dt, now) {
   }
 }
 
-function processBrickHits() {
-  if (isGyroActive || game.state !== 'playing') return;
-  const now = performance.now();
-
-  for (const body of letterBodies) {
-    if (body === draggedBody) continue;
-    const { x, y } = body.position;
-    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
-
-    for (const brick of bricks) {
-      if (!brick.alive) continue;
-      const reachX = brick.w / 2 + body.size;
-      const reachY = brick.h / 2 + body.size;
-      if (Math.abs(x - brick.x) > reachX || Math.abs(y - brick.y) > reachY) continue;
-
-      const mask = getGlyphMask(body.char, body.size);
-      if (!letterTouchesBrick(body, mask, brick)) continue;
-
-      const speed = Math.hypot(body.velocity.x, body.velocity.y);
-
-      if (speed >= MIN_BREAK_SPEED && body.char === brick.char) {
-        brick.alive = false;
-        pendingBreaks.push(brick);
-        continue;
-      }
-
-      // Rebote contra el ladrillo (eje de menor penetración)
-      const nx = (x - brick.x) / reachX;
-      const ny = (y - brick.y) / reachY;
-      if (Math.abs(ny) >= Math.abs(nx)) {
-        const dir = ny >= 0 ? 1 : -1;
-        Body.setVelocity(body, { x: body.velocity.x, y: dir * Math.abs(body.velocity.y) * 0.5 });
-        Body.setPosition(body, { x, y: y + dir * 2 });
-      } else {
-        const dir = nx >= 0 ? 1 : -1;
-        Body.setVelocity(body, { x: dir * Math.abs(body.velocity.x) * 0.5, y: body.velocity.y });
-        Body.setPosition(body, { x: x + dir * 2, y });
-      }
-
-      // Penalización por letra equivocada (con enfriamiento para no repetirla cada frame)
-      if (speed >= MIN_BREAK_SPEED && body.char !== brick.char) {
-        if (!body.lastWrongHit || now - body.lastWrongHit > 400) {
-          game.score = Math.max(0, game.score - WRONG_HIT_PENALTY);
-        }
-        body.lastWrongHit = now;
-      }
-    }
-
-    // 2. Comprobación contra el ladrillo especial multicolor en movimiento
-    if (specialBrick && specialBrick.alive) {
-      const sb = specialBrick;
-      const reachX = sb.w / 2 + body.size;
-      const reachY = sb.h / 2 + body.size;
-      if (Math.abs(x - sb.x) <= reachX && Math.abs(y - sb.y) <= reachY) {
-        const mask = getGlyphMask(body.char, body.size);
-        if (letterTouchesBrick(body, mask, sb)) {
-          const speed = Math.hypot(body.velocity.x, body.velocity.y);
-          if (speed >= MIN_BREAK_SPEED && body.char === sb.char) {
-            // ¡Ladrillo especial roto!
-            sb.alive = false;
-            spawnShards(sb, true);
-            soundManager.playGlassBreak();
-            soundManager.playGlitter();
-
-            // Extra: -2seg a descontar del tiempo para valorar la puntuación
-            game.bonusTimeSaved = (game.bonusTimeSaved || 0) + 2;
-            game.startTime += 2000; // Descuenta 2 segundos netos del tiempo transcurrido
-            game.score += 200; // Puntos extra
-
-            addFloatingText('-2s EXTRA!', sb.x, sb.y - 12, '#fed330');
-            specialBrick = null;
-            nextSpecialSpawnTime = now + 22000 + Math.random() * 5000;
-          } else {
-            // Rebote contra el ladrillo especial
-            const nx = (x - sb.x) / reachX;
-            const ny = (y - sb.y) / reachY;
-            if (Math.abs(ny) >= Math.abs(nx)) {
-              const dir = ny >= 0 ? 1 : -1;
-              Body.setVelocity(body, { x: body.velocity.x, y: dir * Math.abs(body.velocity.y) * 0.5 });
-              Body.setPosition(body, { x, y: y + dir * 2 });
-            } else {
-              const dir = nx >= 0 ? 1 : -1;
-              Body.setVelocity(body, { x: dir * Math.abs(body.velocity.x) * 0.5, y: body.velocity.y });
-              Body.setPosition(body, { x: x + dir * 2, y });
-            }
-
-            if (speed >= MIN_BREAK_SPEED && body.char !== sb.char) {
-              if (!body.lastWrongHit || now - body.lastWrongHit > 400) {
-                game.score = Math.max(0, game.score - WRONG_HIT_PENALTY);
-              }
-              body.lastWrongHit = now;
-            }
-          }
-        }
-      }
-    }
+function processCannonImpact({ char, target }) {
+  if (isGyroActive || game.state !== 'playing' || !target?.alive) return;
+  const special = target === specialBrick;
+  const result = scoreImpact(game.score, char, target, special);
+  game.score = result.score;
+  if (!result.broken) {
+    addFloatingText('−10 · OTRA LETRA', target.x, target.y + 20, '#fc5c65');
+    soundManager.playWoodGlassHit(0.4);
+    return;
   }
+  target.alive = false;
+  spawnShards(target, special);
+  soundManager.playGlassBreak();
+  if (special) {
+    soundManager.playGlitter();
+    game.bonusTimeSaved += result.secondsSaved;
+    game.startTime += result.secondsSaved * 1000;
+    addFloatingText('-2s EXTRA!', target.x, target.y - 12, '#fed330');
+    specialBrick = null;
+    nextSpecialSpawnTime = performance.now() + 22000 + Math.random() * 5000;
+  }
+  if (bricks.every((brick) => !brick.alive)) finishGame();
 }
 
 function spawnShards(brick, isMulticolor = false) {
@@ -842,32 +767,20 @@ function spawnShards(brick, isMulticolor = false) {
   }
 }
 
-function processPendingBreaks() {
-  if (pendingBreaks.length === 0) return;
-  const list = pendingBreaks;
-  pendingBreaks = [];
-  for (const brick of list) {
-    if (brick.body) World.remove(world, brick.body);
-    spawnShards(brick);
-    soundManager.playGlassBreak();
-    game.score += POINTS_PER_BRICK;
-  }
-  if (game.state === 'playing' && bricks.every((b) => !b.alive)) {
-    finishGame();
-  }
-}
-
 function finishGame() {
   game.state = 'finished';
+  cannon.setEnabled(false);
   specialBrick = null;
   game.elapsed = Math.max(0, (performance.now() - game.startTime) / 1000);
-  const timeBonus = Math.max(0, Math.round(bricks.length * SECONDS_PER_BRICK - game.elapsed)) * 10;
-  const throwBonus = Math.max(0, bricks.length * MAX_THROWS_PER_BRICK - game.throws) * 25;
+  const { timeBonus, throwBonus } = completionBonus(bricks.length, game.elapsed, game.throws);
   game.score += timeBonus + throwBonus;
   game.timeBonus = timeBonus;
   game.throwBonus = throwBonus;
   soundManager.playVictory();
-  setTimeout(openGameOverModal, 1100);
+  const finishedGame = game;
+  setTimeout(() => {
+    if (game === finishedGame && !isGyroActive) openGameOverModal();
+  }, 1100);
 }
 
 function drawGame(ctx) {
@@ -1557,6 +1470,7 @@ function startFallingSequence() {
   }
   letterBodies = [];
   startGame();
+  if (!isGyroActive) return;
 
   const items = getLetterLayout();
   const delay = items.length > 6 ? 380 : (items.length > 4 ? 480 : CONFIG.dropDelay);
@@ -1811,9 +1725,8 @@ function render(currentTime = performance.now()) {
       updateRelaxMarblesPhysics(dt);
       updateRelaxChallengeFrame();
     }
-    updateSpecialBrick(dt, currentTime);
-    processBrickHits();
-    processPendingBreaks();
+    if (canPlayCannon()) updateSpecialBrick(dt, currentTime);
+    cannon.update(dt);
     updateTrampolinePhysics();
     updateFloorMesh(dt);
 
@@ -1893,7 +1806,7 @@ function render(currentTime = performance.now()) {
     ctx.restore();
 
     // 3. Dibujar Puntos de Color en Pentágono (~3.2px diámetro)
-    for (let pt of pentagonNodes) {
+    for (let pt of (isGyroActive ? pentagonNodes : [])) {
       ctx.beginPath();
       ctx.arc(pt.x, pt.y, 5, 0, Math.PI * 2);
       ctx.fillStyle = `rgba(${pt.r}, ${pt.g}, ${pt.b}, 0.28)`;
@@ -1950,6 +1863,7 @@ function render(currentTime = performance.now()) {
     }
 
     drawGame(ctx);
+    cannon.draw(ctx);
     drawRelaxChallengeHUD(ctx);
 
     // 4. Dibujar Letras Físicas
@@ -2002,14 +1916,9 @@ function getPointerPos(e) {
 }
 
 function onPointerDown(e) {
+  if (!isGyroActive) return;
   const pos = getPointerPos(e);
   if (!Number.isFinite(pos.x) || !Number.isFinite(pos.y)) return;
-
-  // En modo juego (!isGyroActive), el lanzamiento debe realizarse desde la zona inferior
-  const launchZoneTop = height * 0.55;
-  if (!isGyroActive && pos.y < launchZoneTop) {
-    return;
-  }
 
   const hitPad = 18;
   let touchedLetter = false;
@@ -2063,21 +1972,9 @@ function onPointerMove(e) {
     dragHistory.push({ x: rawX, y: rawY, t: now });
     if (dragHistory.length > 5) dragHistory.shift();
 
-    // Si se intenta arrastrar la letra hacia arriba desde la zona de lanzamiento,
-    // pierde el agarre al superar la distancia de aceleración para que los papirotes cojan velocidad sin subir pegada al ladrillo.
-    // En móviles son 50px, en tablets/iPad escala proporcionalmente (hasta 85px) para dar recorrido al dedo.
-    const releaseDistance = Math.max(50, Math.min(85, height * 0.08));
-    if (!isGyroActive && (dragStartY - pos.y) >= releaseDistance) {
-      onPointerUp();
-      return;
-    }
-
     const bounds = getPlayBounds();
     const targetX = Math.max(bounds.left + 30, Math.min(bounds.right - 30, rawX));
-    const glyphTop = -getGlyphMask(draggedBody.char, draggedBody.size).top;
-    const minY = (!isGyroActive && bricks.some((b) => b.alive))
-      ? getBricksBottom() + glyphTop + 3
-      : bounds.top + halfH;
+    const minY = bounds.top + halfH;
     const targetY = Math.max(minY, Math.min(height - halfH, rawY));
 
     const vx = (targetX - draggedBody.position.x) * 0.45;
@@ -2120,10 +2017,6 @@ function onPointerUp() {
     const maxSpeed = Math.round(24 * heightScale);
     vx = Math.max(-maxSpeed, Math.min(maxSpeed, vx));
     vy = Math.max(-maxSpeed, Math.min(maxSpeed, vy));
-
-    if (!isGyroActive && game.state === 'playing' && Math.hypot(vx, vy) >= MIN_BREAK_SPEED) {
-      game.throws += 1;
-    }
 
     Body.setVelocity(draggedBody, { x: vx, y: vy });
     draggedBody = null;
@@ -2197,7 +2090,7 @@ function updateFooterHint() {
     hintEl.innerHTML = '🎨 <strong>Modo Pintar:</strong> ¡Inclina la pantalla con pulso para pintar las 3 letras!';
     if (tickerText) tickerText.textContent = '✦ RETO PINTAR: INCLINA EL MÓVIL Y LLEVA LA LETRA AL COLOR ✦';
   } else {
-    hintEl.textContent = '¡Lanza usando los Papirotes!';
+    hintEl.textContent = 'Mantén, desliza para apuntar y suelta para disparar.';
     if (tickerText) tickerText.textContent = '✦ JUEGA HASTA QUE TU MAMI O PAPI TE DEJE ✦';
   }
 }
@@ -2607,6 +2500,11 @@ function releasePortraitLock() {
 
 async function enableGyro() {
   const onGranted = () => {
+    cannon.setEnabled(false);
+    document.body.classList.remove('romper-cannon');
+    clearDropTimeouts();
+    draggedBody = null;
+    dragHistory = [];
     isGyroActive = true;
     targetTilt = { x: 0, y: 0.9 };
     currentTilt = { x: 0, y: 0.9 };
@@ -2620,7 +2518,6 @@ async function enableGyro() {
     // Modo relax / pintar: quitar ladrillos, suspender juego y cerrar modal de ranking
     bricks = [];
     shards = [];
-    pendingBreaks = [];
     game = { state: 'idle', score: 0, startTime: 0, elapsed: 0, throws: 0, lastRank: null };
     closeGameOverModal();
 
@@ -2629,6 +2526,9 @@ async function enableGyro() {
     window.addEventListener('mousemove', handleDesktopMouseTilt, true);
 
     updateFooterHint();
+    if (letterBodies.length === 0) {
+      getLetterLayout().forEach((item) => spawnLetter(item.char, item.x, item.size));
+    }
     startRelaxChallenge();
     lockPortraitForTablet();
   };
@@ -3114,6 +3014,7 @@ const inputWordName = document.getElementById('input-word-name');
 
 function openAddWordModal() {
   if (!modalAddWord) return;
+  cannon.cancel();
   modalAddWord.removeAttribute('hidden');
   inputWordName.value = '';
   setTimeout(() => inputWordName.focus(), 60);
@@ -3162,6 +3063,8 @@ if (import.meta.env.PROD) injectVercelAnalytics({ mode: 'production' });
 const btnExitHome = document.getElementById('btn-exit-home');
 
 function exitToHome() {
+  cannon.setEnabled(false);
+  document.body.classList.remove('romper-cannon');
   clearDropTimeouts();
   closeGameOverModal();
   closeAddWordModal();
@@ -3175,6 +3078,8 @@ function exitToHome() {
   }
 
   game.state = 'idle';
+  cannon.setEnabled(false);
+  document.body.classList.remove('romper-cannon');
   relaxChallenge.active = false;
   relaxChallenge.state = 'idle';
   if (mathModal) mathModal.setAttribute('hidden', '');
@@ -3196,7 +3101,8 @@ document.getElementById('btn-replay').addEventListener('click', () => {
 });
 
 // Resize responsivo
-window.addEventListener('resize', () => {
+function resizeGame() {
+  const previousScene = getCannonScene();
   width = canvas.width = window.innerWidth;
   height = canvas.height = window.innerHeight;
   const bounds = getPlayBounds();
@@ -3206,9 +3112,48 @@ window.addEventListener('resize', () => {
   Body.setPosition(leftWall, { x: bounds.left - 20, y: height / 2 });
   Body.setPosition(rightWall, { x: bounds.right + 20, y: height / 2 });
   relayoutBricks();
+  measureCannonScene();
+  cannon.resize(previousScene);
+}
+window.addEventListener('resize', resizeGame);
+window.visualViewport?.addEventListener('resize', resizeGame);
+
+const cannonControls = document.getElementById('cannon-controls');
+let cannonLayout = null;
+
+function canPlayCannon() {
+  return !isGyroActive && game.state === 'playing' && !document.hidden
+    && !document.querySelector('.modal-backdrop:not([hidden])');
+}
+
+function measureCannonScene() {
+  const bounds = getPlayBounds();
+  const controlsTop = cannonControls.hidden ? height - 146 : cannonControls.getBoundingClientRect().top;
+  const radius = Math.max(10, Math.min(18, bounds.width * 0.043));
+  const origin = { x: (bounds.left + bounds.right) / 2, y: controlsTop - radius - 12 };
+  cannonLayout = { bounds, radius, origin, speed: Math.max(280, (origin.y - bounds.top) * 1.35) };
+}
+
+function getCannonScene() {
+  if (!cannonLayout) measureCannonScene();
+  return { ...cannonLayout, targets: specialBrick?.alive ? [...bricks, specialBrick] : bricks, ammoTargets: bricks };
+}
+
+const cannon = createCannonView({
+  controls: cannonControls,
+  getScene: getCannonScene,
+  canPlay: canPlayCannon,
+  onFire: () => { game.throws += 1; },
+  onImpact: processCannonImpact,
+});
+
+// Cualquier modal cancela el gesto, incluso si se abre desde otro módulo.
+new MutationObserver(() => {
+  if (!canPlayCannon()) cannon.cancel();
+}).observe(document.getElementById('app'), {
+  subtree: true, attributes: true, attributeFilter: ['hidden'],
 });
 
 // Inicio
-startFallingSequence();
 render();
 initIllusionDonut();

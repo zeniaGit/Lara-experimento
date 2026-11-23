@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <title>LARA — Experimento de Gravedad</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -12,6 +12,18 @@
 <body>
   <div id="app">
     <canvas id="gravity-canvas"></canvas>
+    <section id="cannon-controls" class="cannon-controls" aria-label="Lanzador de letras" hidden>
+      <div class="cannon-toolbar">
+        <span>SIGUIENTE <strong class="cannon-next">—</strong></span>
+        <button type="button" class="cannon-cancel" aria-label="Cancelar disparo">CANCELAR</button>
+      </div>
+      <div class="cannon-pad" role="slider" tabindex="0" aria-label="Ángulo del cañón"
+        aria-valuemin="-70" aria-valuemax="70" aria-valuenow="0"
+        aria-describedby="cannon-help">
+        <span aria-hidden="true">← DESLIZA PARA APUNTAR →</span>
+        <span class="cannon-status" id="cannon-help" aria-live="polite">Mantén, desliza y suelta para disparar</span>
+      </div>
+    </section>
     <header class="hud-header">
       <div class="brand-group">
         <div id="words-cluster" class="words-cluster"></div>
@@ -57,7 +69,7 @@
           <span class="ticker-text">✦ Juega hasta que tu mami o papi te deje ✦</span>
         </div>
       </div>
-      <p class="hint">¡Lanza usando los Papirotes!</p>
+      <p class="hint">Apunta y suelta para lanzar la letra.</p>
     </footer>
 
     <!-- Popup de nivel de dificultad al cambiar nombres -->
@@ -158,7 +170,7 @@
           <div class="mode-card mode-card-break">
             <div class="mode-card-icon">🧱</div>
             <h4>ROMPER</h4>
-            <p>Lanza las letras hacia arriba usando los papirotes y destruye todos los ladrillos para batir tu récord.</p>
+            <p>Apunta con el cañón y suelta para disparar. Rompe los ladrillos con la misma letra, ¡también rebotando en las paredes!</p>
             <button type="button" id="btn-choose-break" class="modal-btn primary mode-select-btn">Jugar a Romper</button>
           </div>
           <div class="mode-card mode-card-math">
@@ -203,7 +215,7 @@
         </div>
         <div id="home-ranking-tabs" class="ranking-tabs" role="tablist" aria-label="Rankings por juego">
           <button type="button" role="tab" id="home-tab-pintar" class="rank-tab-btn" data-game="pintar" aria-selected="true" tabindex="0">🎨 PINTAR</button>
-          <button type="button" role="tab" id="home-tab-romper" class="rank-tab-btn" data-game="romper" aria-selected="false" tabindex="-1">🧱 ROMPER</button>
+          <button type="button" role="tab" id="home-tab-romper" class="rank-tab-btn" data-game="romper" aria-selected="false" tabindex="-1">🧱 ROMPER · CAÑÓN</button>
           <button type="button" role="tab" id="home-tab-mates" class="rank-tab-btn" data-game="mates" aria-selected="false" tabindex="-1">➗ MATES</button>
           <button type="button" role="tab" id="home-tab-ingles" class="rank-tab-btn" data-game="ingles" aria-selected="false" tabindex="-1">🔤 INGLÉS</button>
         </div>

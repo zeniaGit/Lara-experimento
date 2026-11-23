@@ -8,7 +8,8 @@ rules_version = '2';
 // Auth Model: Unauthenticated public kids/family browser game (no Firebase Auth).
 //
 // Collection: rankings/{mode}/entries/{entryId}
-//   Allowed {mode} values: '1', '2', '3', '4', 'pintar', 'mates', 'ingles'
+//   Allowed {mode} values: legacy '1'..'4', 'romper-canon-1'..'romper-canon-4',
+//                          'pintar', 'mates', 'ingles'
 //   Document ID ({entryId}): Auto-generated or client-generated entry ID
 //   Fields (immutable after creation):
 //     - name: string (required, length 1..10, non-blank) - Player display name
@@ -28,7 +29,8 @@ service cloud.firestore {
 
     // Validate allowed ranking mode collection ID
     function isValidMode(mode) {
-      return mode in ['1', '2', '3', '4', 'pintar', 'mates', 'ingles'];
+      return mode in ['1', '2', '3', '4', 'romper-canon-1', 'romper-canon-2',
+                      'romper-canon-3', 'romper-canon-4', 'pintar', 'mates', 'ingles'];
     }
 
     // Validate required fields exist

@@ -1079,3 +1079,149 @@ html, body {
 #english-score-form[hidden] {
   display: none;
 }
+
+/* Lanzador ROMPER: controles independientes de la física de PINTAR. */
+.cannon-controls {
+  position: absolute;
+  z-index: 15;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  padding: 0 max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+  background: linear-gradient(transparent, #0b0c10 28%);
+}
+
+.cannon-controls[hidden] { display: none; }
+
+.cannon-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  max-width: 640px;
+  margin: 0 auto 6px;
+  min-height: 44px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+}
+
+.cannon-next {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 6px;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--accent);
+  border-radius: 50%;
+  font: 700 22px var(--font-display);
+}
+
+.cannon-cancel {
+  visibility: hidden;
+  min-width: 100px;
+  min-height: 44px;
+  border: 1px solid #fc5c65;
+  border-radius: 12px;
+  background: #29191e;
+  color: #fff;
+  font: 700 12px var(--font-ui);
+  touch-action: none;
+}
+
+.is-aiming .cannon-cancel { visibility: visible; }
+.is-cancelling .cannon-cancel { background: #8b2634; }
+
+.cannon-pad {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 9px;
+  min-height: 84px;
+  max-width: 640px;
+  margin: auto;
+  padding: 12px;
+  border: 1px solid rgba(102, 252, 241, 0.5);
+  border-radius: 18px;
+  background: rgba(102, 252, 241, 0.08);
+  color: var(--accent);
+  font: 700 12px var(--font-ui);
+  text-align: center;
+  touch-action: none;
+  -webkit-touch-callout: none;
+  cursor: crosshair;
+}
+
+.cannon-status { font-size: 11px; color: var(--text-main); font-weight: 400; }
+.cannon-pad:focus-visible { outline: 2px solid white; outline-offset: 3px; }
+.is-aiming .cannon-pad { background: rgba(102, 252, 241, 0.17); }
+.is-flying .cannon-pad { opacity: 0.55; cursor: wait; }
+.romper-cannon .hud-footer { display: none; }
+.romper-cannon .hud-header {
+  padding-top: max(8px, env(safe-area-inset-top));
+  padding-left: max(12px, env(safe-area-inset-left));
+  padding-right: max(12px, env(safe-area-inset-right));
+}
+.romper-cannon .toggle-btn,
+.romper-cannon .word-toggle-btn,
+.romper-cannon .word-add-btn { min-height: 44px; min-width: 44px; }
+.romper-cannon .brand-tag-label { display: none; }
+
+@media (max-height: 520px) {
+  .romper-cannon .hud-controls-col { flex-direction: row; }
+  .romper-cannon .brand-group { max-width: calc(100% - 240px); }
+  .cannon-pad { min-height: 52px; gap: 3px; padding: 6px; }
+  .cannon-toolbar { margin-bottom: 2px; }
+}
+
+/* ── Responsividad móvil: panel de Rankings ───────────────────────────── */
+@media (max-width: 480px) {
+  /* Modal de rankings ocupa casi toda la pantalla */
+  .rankings-modal-box {
+    max-width: 100%;
+    width: 100%;
+    padding: 16px 12px 20px;
+    max-height: calc(100dvh - 32px);
+    overflow-y: auto;
+  }
+
+  /* Tabs: scroll horizontal, sin salto de línea, tamaño mínimo tocable */
+  #home-ranking-tabs.ranking-tabs {
+    justify-content: flex-start;
+    gap: 6px;
+    padding-bottom: 4px;
+  }
+
+  .rank-tab-btn {
+    font-size: 0.63rem;
+    padding: 6px 8px;
+    letter-spacing: 0.08em;
+    min-height: 36px;
+  }
+
+  /* Fila de ranking: columna de score más estrecha en texto largo */
+  .ranking-list {
+    font-size: 0.78rem;
+  }
+
+  .ranking-list li {
+    grid-template-columns: 22px 1fr auto;
+    gap: 6px;
+    padding: 5px 2px;
+  }
+
+  /* Score: permite wrap para "X fallos · 0,123 s" */
+  .ranking-list li > :last-child {
+    text-align: right;
+    font-size: 0.72rem;
+    white-space: normal;
+    word-break: break-word;
+    max-width: 90px;
+  }
+
+  /* Avatar ligeramente más pequeño */
+  .rank-avatar {
+    width: 22px;
+    height: 22px;
+  }
+}
